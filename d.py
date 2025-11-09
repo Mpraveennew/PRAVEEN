@@ -734,6 +734,7 @@ with tabs[3]:
                     st.rerun()
 
 # ---------- Tab 4: Vendor Payments ----------
+# ---------- Tab 4: Vendor Payments ----------
 with tabs[4]:
     st.header("Record Fruit Payments")
     
@@ -748,28 +749,46 @@ with tabs[4]:
         
         with col1:
             st.subheader("New Payment")
-            with st.form("payment_form", clear_on_submit=True):
-                pdate = st.date_input("Payment Date *", value=date.today())
-                vpay = st.selectbox("Vendor *", vendors_df['name'].tolist())
-                vid = int(vendors_df[vendors_df['name'] == vpay]['id'].iloc[0])
-                
-                # Show vendor's current due
-                summary = vendor_summary_table()
-                if not summary.empty:
-                    vendor_row = summary[summary['vendor_id'] == vid]
-                    if not vendor_row.empty:
-                        vendor_due = vendor_row['net_due'].iloc[0]
-                        deposits_held = vendor_row['net_deposits_held'].iloc[0]
+            
+            # MOVE VENDOR SELECTION OUTSIDE FORM
+            pdate = st.date_input("Payment Date *", value=date.today(), key="payment_date")
+            vpay = st.selectbox("Vendor *", vendors_df['name'].tolist(), key="payment_vendor")
+            vid = int(vendors_df[vendors_df['name'] == vpay]['id'].iloc[0])
+            
+            # SHOW METRICS OUTSIDE FORM - Updates immediately when vendor changes
+            summary = vendor_summary_table()
+            if not summary.empty:
+                vendor_row = summary[summary['vendor_id'] == vid]
+                if not vendor_row.empty:
+                    vendor_due = vendor_row['net_due'].iloc[0]
+                    deposits_held = vendor_row['net_deposits_held'].iloc[0]
+                    
+                    # Display current vendor's dues
+                    col_a, col_b = st.columns(2)
+                    with col_a:
                         st.metric("Amount Due (for fruit)", f"₹{vendor_due:.2f}")
-                        st.metric("Box Deposits Held", f"₹{deposits_held:.2f}")
-                
-                amount = st.number_input("Payment Amount (₹) *", min_value=0.0, value=0.0, step=100.0)
+                    with col_b:
+                        st.metric("Box Deposits Held", f"₹{deposits_held:.2f}", 
+                                 help="Security deposit for boxes")
+            
+            st.divider()
+            
+            # ONLY PAYMENT AMOUNT AND NOTE INSIDE FORM
+            with st.form("payment_form", clear_on_submit=True):
+                amount = st.number_input("Payment Amount (₹) *", 
+                                        min_value=0.0, 
+                                        value=0.0, 
+                                        step=100.0,
+                                        help="Payment for fruit purchase only")
                 pnote = st.text_area("Note (optional)", placeholder="Payment details...")
                 
                 if st.form_submit_button("💵 Record Payment", type="primary"):
-                    if record_payment(pdate.isoformat(), vid, amount, pnote):
-                        st.success(f"✅ Payment of ₹{amount} recorded from {vpay}")
-                        st.rerun()
+                    if amount > 0:
+                        if record_payment(pdate.isoformat(), vid, amount, pnote):
+                            st.success(f"✅ Payment of ₹{amount} recorded from {vpay}")
+                            st.rerun()
+                    else:
+                        st.error("Payment amount must be greater than 0")
         
         with col2:
             st.subheader("Recent Payments")
