@@ -2,3 +2,4 @@ streamlit
 pandas
 fpdf
 openpyxl
+st-supabase-connection

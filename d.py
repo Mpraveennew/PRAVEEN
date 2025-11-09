@@ -1,135 +1,58 @@
-# dbf.py - Fixed Version with Box Deposit Logic
+# dbf.py - Supabase Version with Persistent Storage
 import streamlit as st
-import sqlite3
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 from fpdf import FPDF
 from io import BytesIO
-import os
-from contextlib import contextmanager
+from st_supabase_connection import SupabaseConnection
 
-DB_FILE = "fruits.db"
-BOX_DEPOSIT_DEFAULT = 200.0  # Default box deposit per box
+BOX_DEPOSIT_DEFAULT = 200.0
+
+# -------------------- Supabase Connection --------------------
+@st.cache_resource
+def init_connection():
+    """Initialize Supabase connection"""
+    return st.connection("supabase", type=SupabaseConnection)
+
+supabase = init_connection()
 
 # -------------------- Database helpers --------------------
-@contextmanager
-def get_conn():
-    """Thread-safe database connection context manager"""
-    conn = sqlite3.connect(DB_FILE, timeout=10)
+def execute_query(table, operation, data=None, filters=None):
+    """Generic query executor with error handling"""
     try:
-        yield conn
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()
-
-def init_db():
-    """Initialize database with all required tables"""
-    with get_conn() as conn:
-        c = conn.cursor()
+        query = supabase.table(table)
         
-        # stock / purchases (incoming)
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS stock (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fruit TEXT NOT NULL,
-            quantity INTEGER NOT NULL CHECK(quantity >= 0),
-            cost_price REAL NOT NULL CHECK(cost_price >= 0),
-            date TEXT NOT NULL,
-            remaining INTEGER NOT NULL DEFAULT 0
-        )""")
+        if operation == "insert":
+            result = query.insert(data).execute()
+        elif operation == "select":
+            query = query.select("*")
+            if filters:
+                for key, value in filters.items():
+                    query = query.eq(key, value)
+            result = query.execute()
+        elif operation == "update":
+            query = query.update(data)
+            if filters:
+                for key, value in filters.items():
+                    query = query.eq(key, value)
+            result = query.execute()
+        elif operation == "delete":
+            if filters:
+                for key, value in filters.items():
+                    query = query.eq(key, value)
+            result = query.delete().execute()
         
-        # vendors
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS vendors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            contact TEXT NOT NULL
-        )""")
-        
-        # sales
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS sales (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dt TEXT NOT NULL,
-            vendor_id INTEGER NOT NULL,
-            fruit TEXT NOT NULL,
-            boxes INTEGER NOT NULL CHECK(boxes > 0),
-            price_per_box REAL NOT NULL CHECK(price_per_box >= 0),
-            total_price REAL NOT NULL,
-            box_deposit_per_box REAL NOT NULL CHECK(box_deposit_per_box >= 0),
-            box_deposit_collected REAL NOT NULL,
-            note TEXT,
-            FOREIGN KEY(vendor_id) REFERENCES vendors(id)
-        )""")
-        
-        # returns
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS returns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dt TEXT NOT NULL,
-            vendor_id INTEGER NOT NULL,
-            fruit TEXT NOT NULL,
-            boxes_returned INTEGER NOT NULL CHECK(boxes_returned > 0),
-            box_deposit_refunded REAL NOT NULL CHECK(box_deposit_refunded >= 0),
-            note TEXT,
-            FOREIGN KEY(vendor_id) REFERENCES vendors(id)
-        )""")
-        
-        # payments (actual payments for fruit, NOT box deposits)
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            dt TEXT NOT NULL,
-            vendor_id INTEGER NOT NULL,
-            amount REAL NOT NULL CHECK(amount > 0),
-            note TEXT,
-            FOREIGN KEY(vendor_id) REFERENCES vendors(id)
-        )""")
-        
-        # rollover log
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS rollover_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL UNIQUE,
-            carried INTEGER NOT NULL
-        )""")
-        
-        # Add remaining column to existing stock table if not exists
-        try:
-            c.execute("SELECT remaining FROM stock LIMIT 1")
-        except sqlite3.OperationalError:
-            c.execute("ALTER TABLE stock ADD COLUMN remaining INTEGER DEFAULT 0")
-            c.execute("UPDATE stock SET remaining = quantity WHERE remaining = 0")
-
-def run_query(query, params=()):
-    """Execute a query with error handling"""
-    try:
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute(query, params)
-            return True
+        return True, result
     except Exception as e:
         st.error(f"Database error: {str(e)}")
-        return False
-
-def fetch_query(query, params=()):
-    """Fetch query results as DataFrame"""
-    try:
-        with get_conn() as conn:
-            df = pd.read_sql_query(query, conn, params=params)
-        return df
-    except Exception as e:
-        st.error(f"Database query error: {str(e)}")
-        return pd.DataFrame()
+        return False, None
 
 # -------------------- Core operations --------------------
 def add_stock(fruit, boxes, cost_per_box, dt=None):
     """Add stock with FIFO tracking"""
     if dt is None:
         dt = date.today().isoformat()
+    
     boxes = int(boxes)
     cost_per_box = float(cost_per_box)
     
@@ -137,10 +60,18 @@ def add_stock(fruit, boxes, cost_per_box, dt=None):
         st.error("Invalid stock values")
         return False
     
-    return run_query(
-        "INSERT INTO stock (fruit, quantity, cost_price, date, remaining) VALUES (?, ?, ?, ?, ?)",
-        (fruit.upper(), boxes, cost_per_box, dt, boxes)
-    )
+    data = {
+        "fruit": fruit.upper(),
+        "quantity": boxes,
+        "cost_price": cost_per_box,
+        "date": dt,
+        "remaining": boxes
+    }
+    
+    success, _ = execute_query("stock", "insert", data)
+    if success:
+        st.cache_data.clear()
+    return success
 
 def add_vendor(name, contact):
     """Add vendor with validation"""
@@ -155,70 +86,84 @@ def add_vendor(name, contact):
         st.error("Contact must be exactly 10 digits")
         return False
     
-    return run_query(
-        "INSERT OR IGNORE INTO vendors (name, contact) VALUES (?, ?)", 
-        (name, contact)
-    )
+    data = {"name": name, "contact": contact}
+    success, _ = execute_query("vendors", "insert", data)
+    
+    if success:
+        st.cache_data.clear()
+    return success
 
 @st.cache_data(ttl=60)
 def list_vendors():
     """Cached vendor list"""
-    return fetch_query("SELECT * FROM vendors ORDER BY name")
+    try:
+        response = supabase.table("vendors").select("*").order("name").execute()
+        return pd.DataFrame(response.data)
+    except:
+        return pd.DataFrame()
 
 @st.cache_data(ttl=60)
 def list_fruits():
-    """Cached fruit list"""
-    df = fetch_query("SELECT DISTINCT fruit FROM stock WHERE remaining > 0")
-    return sorted(df['fruit'].tolist()) if not df.empty else []
+    """Cached fruit list with available stock"""
+    try:
+        response = supabase.table("stock").select("fruit, remaining").execute()
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            return []
+        df = df[df['remaining'] > 0]
+        return sorted(df['fruit'].unique().tolist())
+    except:
+        return []
 
 @st.cache_data(ttl=30)
 def get_current_stock():
-    """Get current stock using FIFO remaining quantities"""
-    df = fetch_query("""
-        SELECT fruit, SUM(remaining) as available
-        FROM stock
-        GROUP BY fruit
-        HAVING available > 0
-        ORDER BY fruit
-    """)
-    
-    if df.empty:
+    """Get current stock aggregated by fruit"""
+    try:
+        response = supabase.table("stock").select("fruit, remaining").execute()
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            return {}
+        stock_summary = df.groupby('fruit')['remaining'].sum()
+        return {k: int(v) for k, v in stock_summary.items() if v > 0}
+    except:
         return {}
-    
-    return dict(zip(df['fruit'], df['available'].astype(int)))
 
 def reduce_stock_fifo(fruit, boxes_to_reduce):
     """Reduce stock using FIFO method"""
     try:
-        with get_conn() as conn:
-            cur = conn.cursor()
+        # Get stock entries ordered by date
+        response = supabase.table("stock")\
+            .select("*")\
+            .eq("fruit", fruit)\
+            .gt("remaining", 0)\
+            .order("date")\
+            .order("id")\
+            .execute()
+        
+        stock_entries = response.data
+        remaining_to_reduce = boxes_to_reduce
+        
+        for entry in stock_entries:
+            if remaining_to_reduce <= 0:
+                break
             
-            # Get oldest stock entries with remaining quantity
-            cur.execute("""
-                SELECT id, remaining FROM stock 
-                WHERE fruit = ? AND remaining > 0 
-                ORDER BY date ASC, id ASC
-            """, (fruit,))
+            available = entry['remaining']
+            to_reduce = min(available, remaining_to_reduce)
             
-            stock_entries = cur.fetchall()
-            remaining_to_reduce = boxes_to_reduce
+            # Update remaining quantity
+            new_remaining = available - to_reduce
+            supabase.table("stock")\
+                .update({"remaining": new_remaining})\
+                .eq("id", entry['id'])\
+                .execute()
             
-            for stock_id, available in stock_entries:
-                if remaining_to_reduce <= 0:
-                    break
-                
-                to_reduce = min(available, remaining_to_reduce)
-                cur.execute(
-                    "UPDATE stock SET remaining = remaining - ? WHERE id = ?",
-                    (to_reduce, stock_id)
-                )
-                remaining_to_reduce -= to_reduce
-            
-            if remaining_to_reduce > 0:
-                return False, f"Insufficient stock. Short by {remaining_to_reduce} boxes"
-            
-            return True, "Stock reduced successfully"
-            
+            remaining_to_reduce -= to_reduce
+        
+        if remaining_to_reduce > 0:
+            return False, f"Insufficient stock. Short by {remaining_to_reduce} boxes"
+        
+        return True, "Stock reduced successfully"
+        
     except Exception as e:
         return False, f"Error reducing stock: {str(e)}"
 
@@ -228,12 +173,11 @@ def sell_to_vendor(dt, vendor_id, fruit, boxes, price_per_box, box_deposit_per_b
     price_per_box = float(price_per_box)
     box_deposit_per_box = float(box_deposit_per_box)
     
-    # Validation
     if boxes <= 0:
         st.error("Boxes must be greater than 0")
         return False
     
-    # Check stock availability
+    # Check stock
     stock = get_current_stock()
     available = stock.get(fruit, 0)
     
@@ -241,7 +185,7 @@ def sell_to_vendor(dt, vendor_id, fruit, boxes, price_per_box, box_deposit_per_b
         st.error(f"Insufficient stock. Available: {available} boxes")
         return False
     
-    # Reduce stock using FIFO
+    # Reduce stock
     success, message = reduce_stock_fifo(fruit, boxes)
     if not success:
         st.error(message)
@@ -251,17 +195,24 @@ def sell_to_vendor(dt, vendor_id, fruit, boxes, price_per_box, box_deposit_per_b
     total_price = boxes * price_per_box
     box_deposit_collected = boxes * box_deposit_per_box
     
-    result = run_query("""
-        INSERT INTO sales (dt, vendor_id, fruit, boxes, price_per_box, total_price, 
-                          box_deposit_per_box, box_deposit_collected, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (dt, int(vendor_id), fruit, boxes, price_per_box, total_price, 
-          box_deposit_per_box, box_deposit_collected, note))
+    sale_data = {
+        "dt": dt,
+        "vendor_id": int(vendor_id),
+        "fruit": fruit,
+        "boxes": boxes,
+        "price_per_box": price_per_box,
+        "total_price": total_price,
+        "box_deposit_per_box": box_deposit_per_box,
+        "box_deposit_collected": box_deposit_collected,
+        "note": note
+    }
     
-    if result:
-        st.cache_data.clear()  # Clear cache to reflect changes
+    success, _ = execute_query("sales", "insert", sale_data)
     
-    return result
+    if success:
+        st.cache_data.clear()
+    
+    return success
 
 def record_return(dt, vendor_id, fruit, boxes_returned, box_deposit_per_box, note=""):
     """Record return with box deposit refund"""
@@ -274,24 +225,42 @@ def record_return(dt, vendor_id, fruit, boxes_returned, box_deposit_per_box, not
     
     box_deposit_refunded = box_deposit_per_box * boxes_returned
     
-    # Add returned boxes back to stock and record return
     try:
-        with get_conn() as conn:
-            cur = conn.cursor()
-            
-            # Record return
-            cur.execute("""
-                INSERT INTO returns (dt, vendor_id, fruit, boxes_returned, box_deposit_refunded, note)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (dt, int(vendor_id), fruit, boxes_returned, box_deposit_refunded, note))
-            
-            # Add back to stock with today's date
-            cur.execute("""
-                INSERT INTO stock (fruit, quantity, cost_price, date, remaining)
-                SELECT ?, ?, AVG(cost_price), ?, ?
-                FROM stock WHERE fruit = ?
-            """, (fruit, boxes_returned, dt, boxes_returned, fruit))
-            
+        # Record return
+        return_data = {
+            "dt": dt,
+            "vendor_id": int(vendor_id),
+            "fruit": fruit,
+            "boxes_returned": boxes_returned,
+            "box_deposit_refunded": box_deposit_refunded,
+            "note": note
+        }
+        
+        supabase.table("returns").insert(return_data).execute()
+        
+        # Get average cost for returned fruit
+        cost_response = supabase.table("stock")\
+            .select("cost_price, quantity")\
+            .eq("fruit", fruit)\
+            .execute()
+        
+        if cost_response.data:
+            df = pd.DataFrame(cost_response.data)
+            avg_cost = (df['cost_price'] * df['quantity']).sum() / df['quantity'].sum()
+        else:
+            avg_cost = 0
+        
+        # Add back to stock
+        stock_data = {
+            "fruit": fruit,
+            "quantity": boxes_returned,
+            "cost_price": avg_cost,
+            "date": dt,
+            "remaining": boxes_returned
+        }
+        
+        supabase.table("stock").insert(stock_data).execute()
+        
         st.cache_data.clear()
         return True
         
@@ -300,45 +269,51 @@ def record_return(dt, vendor_id, fruit, boxes_returned, box_deposit_per_box, not
         return False
 
 def record_payment(dt, vendor_id, amount, note=""):
-    """Record payment (for fruit purchase, NOT box deposit)"""
+    """Record payment for fruit purchase"""
     amount = float(amount)
     
     if amount <= 0:
         st.error("Payment amount must be greater than 0")
         return False
     
-    result = run_query(
-        "INSERT INTO payments (dt, vendor_id, amount, note) VALUES (?, ?, ?, ?)",
-        (dt, int(vendor_id), amount, note)
-    )
+    payment_data = {
+        "dt": dt,
+        "vendor_id": int(vendor_id),
+        "amount": amount,
+        "note": note
+    }
     
-    if result:
+    success, _ = execute_query("payments", "insert", payment_data)
+    
+    if success:
         st.cache_data.clear()
     
-    return result
+    return success
 
 # -------------------- Reporting helpers --------------------
 def compute_weighted_avg_cost(fruit, up_to_date=None):
     """Compute weighted average cost per box"""
-    if up_to_date is None:
-        query = "SELECT quantity, cost_price FROM stock WHERE fruit = ?"
-        params = (fruit,)
-    else:
-        query = "SELECT quantity, cost_price FROM stock WHERE fruit = ? AND date <= ?"
-        params = (fruit, up_to_date)
-    
-    df = fetch_query(query, params)
-    
-    if df.empty:
+    try:
+        query = supabase.table("stock").select("quantity, cost_price").eq("fruit", fruit)
+        
+        if up_to_date:
+            query = query.lte("date", up_to_date)
+        
+        response = query.execute()
+        df = pd.DataFrame(response.data)
+        
+        if df.empty:
+            return 0.0
+        
+        total_boxes = df['quantity'].sum()
+        total_cost = (df['quantity'] * df['cost_price']).sum()
+        
+        if total_boxes <= 0:
+            return 0.0
+        
+        return float(total_cost / total_boxes)
+    except:
         return 0.0
-    
-    total_boxes = df['quantity'].sum()
-    total_cost = (df['quantity'] * df['cost_price']).sum()
-    
-    if total_boxes <= 0:
-        return 0.0
-    
-    return float(total_cost / total_boxes)
 
 def compute_cogs_for_sales(sales_df, up_to_date=None):
     """Compute COGS using weighted average cost"""
@@ -354,113 +329,158 @@ def compute_cogs_for_sales(sales_df, up_to_date=None):
     return cogs
 
 def vendor_summary_table():
-    """Generate vendor summary with dues (excluding box deposits from payment calculation)"""
-    vendors = fetch_query("SELECT id, name FROM vendors")
-    
-    if vendors.empty:
+    """Generate vendor summary with dues"""
+    try:
+        vendors_response = supabase.table("vendors").select("id, name").execute()
+        vendors = pd.DataFrame(vendors_response.data)
+        
+        if vendors.empty:
+            return pd.DataFrame()
+        
+        rows = []
+        
+        for _, v in vendors.iterrows():
+            vid = v['id']
+            vname = v['name']
+            
+            # Get sales
+            sales_response = supabase.table("sales")\
+                .select("total_price, box_deposit_collected")\
+                .eq("vendor_id", vid)\
+                .execute()
+            sales_df = pd.DataFrame(sales_response.data)
+            
+            total_sales = float(sales_df['total_price'].sum()) if not sales_df.empty else 0.0
+            deposits_collected = float(sales_df['box_deposit_collected'].sum()) if not sales_df.empty else 0.0
+            
+            # Get returns
+            returns_response = supabase.table("returns")\
+                .select("box_deposit_refunded")\
+                .eq("vendor_id", vid)\
+                .execute()
+            returns_df = pd.DataFrame(returns_response.data)
+            
+            deposits_refunded = float(returns_df['box_deposit_refunded'].sum()) if not returns_df.empty else 0.0
+            
+            # Get payments
+            payments_response = supabase.table("payments")\
+                .select("amount")\
+                .eq("vendor_id", vid)\
+                .execute()
+            payments_df = pd.DataFrame(payments_response.data)
+            
+            paid = float(payments_df['amount'].sum()) if not payments_df.empty else 0.0
+            
+            net_box_deposits_held = deposits_collected - deposits_refunded
+            net_due = total_sales - paid
+            
+            rows.append({
+                "vendor_id": vid,
+                "vendor_name": vname,
+                "total_sales": total_sales,
+                "payments": paid,
+                "net_due": net_due,
+                "deposits_collected": deposits_collected,
+                "deposits_refunded": deposits_refunded,
+                "net_deposits_held": net_box_deposits_held
+            })
+        
+        return pd.DataFrame(rows)
+    except:
         return pd.DataFrame()
-    
-    rows = []
-    
-    for _, v in vendors.iterrows():
-        vid = v['id']
-        vname = v['name']
-        
-        # Get sales data
-        sales_df = fetch_query("""
-            SELECT COALESCE(SUM(total_price), 0) as total_sales, 
-                   COALESCE(SUM(box_deposit_collected), 0) as deposits_collected 
-            FROM sales WHERE vendor_id = ?
-        """, (vid,))
-        
-        total_sales = float(sales_df['total_sales'].iloc[0]) if not sales_df.empty else 0.0
-        deposits_collected = float(sales_df['deposits_collected'].iloc[0]) if not sales_df.empty else 0.0
-        
-        # Get box deposit refunds
-        refunds_df = fetch_query("""
-            SELECT COALESCE(SUM(box_deposit_refunded), 0) as deposits_refunded 
-            FROM returns WHERE vendor_id = ?
-        """, (vid,))
-        
-        deposits_refunded = float(refunds_df['deposits_refunded'].iloc[0]) if not refunds_df.empty else 0.0
-        
-        # Get actual payments (for fruit, not deposits)
-        payments_df = fetch_query("""
-            SELECT COALESCE(SUM(amount), 0) as paid 
-            FROM payments WHERE vendor_id = ?
-        """, (vid,))
-        
-        paid = float(payments_df['paid'].iloc[0]) if not payments_df.empty else 0.0
-        
-        # Net box deposits held = deposits_collected - deposits_refunded
-        net_box_deposits_held = deposits_collected - deposits_refunded
-        
-        # Net due for fruit = total_sales - payments (box deposits are separate)
-        net_due = total_sales - paid
-        
-        rows.append({
-            "vendor_id": vid,
-            "vendor_name": vname,
-            "total_sales": total_sales,
-            "payments": paid,
-            "net_due": net_due,
-            "deposits_collected": deposits_collected,
-            "deposits_refunded": deposits_refunded,
-            "net_deposits_held": net_box_deposits_held
-        })
-    
-    return pd.DataFrame(rows)
 
 def vendor_ledger_df(vendor_id):
-    """Generate vendor ledger with running balance (separating fruit payments and box deposits)"""
-    # Get all transactions
-    sales = fetch_query("""
-        SELECT dt as date, 'SALE' as type, fruit, boxes as qty, 
-               total_price as sale_amount, box_deposit_collected as deposit, note
-        FROM sales WHERE vendor_id = ?
-    """, (vendor_id,))
-    
-    payments = fetch_query("""
-        SELECT dt as date, 'PAYMENT' as type, NULL as fruit, NULL as qty, 
-               -amount as sale_amount, 0 as deposit, note
-        FROM payments WHERE vendor_id = ?
-    """, (vendor_id,))
-    
-    returns = fetch_query("""
-        SELECT dt as date, 'RETURN' as type, fruit, -boxes_returned as qty, 
-               0 as sale_amount, -box_deposit_refunded as deposit, note
-        FROM returns WHERE vendor_id = ?
-    """, (vendor_id,))
-    
-    df = pd.concat([sales, payments, returns], sort=False, ignore_index=True)
-    
-    if df.empty:
+    """Generate vendor ledger with running balance"""
+    try:
+        # Get sales
+        sales_response = supabase.table("sales")\
+            .select("dt, fruit, boxes, total_price, box_deposit_collected, note")\
+            .eq("vendor_id", vendor_id)\
+            .execute()
+        sales = pd.DataFrame(sales_response.data)
+        
+        if not sales.empty:
+            sales['type'] = 'SALE'
+            sales['qty'] = sales['boxes']
+            sales['sale_amount'] = sales['total_price']
+            sales['deposit'] = sales['box_deposit_collected']
+            sales = sales.rename(columns={'dt': 'date'})
+            sales = sales[['date', 'type', 'fruit', 'qty', 'sale_amount', 'deposit', 'note']]
+        
+        # Get payments
+        payments_response = supabase.table("payments")\
+            .select("dt, amount, note")\
+            .eq("vendor_id", vendor_id)\
+            .execute()
+        payments = pd.DataFrame(payments_response.data)
+        
+        if not payments.empty:
+            payments['type'] = 'PAYMENT'
+            payments['fruit'] = None
+            payments['qty'] = None
+            payments['sale_amount'] = -payments['amount']
+            payments['deposit'] = 0
+            payments = payments.rename(columns={'dt': 'date'})
+            payments = payments[['date', 'type', 'fruit', 'qty', 'sale_amount', 'deposit', 'note']]
+        
+        # Get returns
+        returns_response = supabase.table("returns")\
+            .select("dt, fruit, boxes_returned, box_deposit_refunded, note")\
+            .eq("vendor_id", vendor_id)\
+            .execute()
+        returns = pd.DataFrame(returns_response.data)
+        
+        if not returns.empty:
+            returns['type'] = 'RETURN'
+            returns['qty'] = -returns['boxes_returned']
+            returns['sale_amount'] = 0
+            returns['deposit'] = -returns['box_deposit_refunded']
+            returns = returns.rename(columns={'dt': 'date'})
+            returns = returns[['date', 'type', 'fruit', 'qty', 'sale_amount', 'deposit', 'note']]
+        
+        # Combine all
+        dfs = [df for df in [sales, payments, returns] if not df.empty]
+        
+        if not dfs:
+            return pd.DataFrame()
+        
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.sort_values("date", ignore_index=True)
+        
+        df['sale_amount'] = df['sale_amount'].fillna(0).astype(float)
+        df['deposit'] = df['deposit'].fillna(0).astype(float)
+        
+        df['running_due'] = df['sale_amount'].cumsum()
+        df['running_deposits'] = df['deposit'].cumsum()
+        
         return df
-    
-    df = df.sort_values("date", ignore_index=True)
-    df['sale_amount'] = df['sale_amount'].fillna(0).astype(float)
-    df['deposit'] = df['deposit'].fillna(0).astype(float)
-    
-    # Calculate running balances
-    df['running_due'] = df['sale_amount'].cumsum()  # Money owed for fruit
-    df['running_deposits'] = df['deposit'].cumsum()  # Net box deposits held
-    
-    return df
+    except:
+        return pd.DataFrame()
 
 # -------------------- Daily rollover --------------------
 def carry_forward_stock():
     """Carry forward stock for new day"""
     today_str = date.today().isoformat()
     
-    # Check if already done today
-    existing = fetch_query("SELECT * FROM rollover_log WHERE date = ?", (today_str,))
-    if not existing.empty:
+    try:
+        # Check if already done
+        response = supabase.table("rollover_log")\
+            .select("*")\
+            .eq("date", today_str)\
+            .execute()
+        
+        if response.data:
+            return False
+        
+        # Log rollover
+        supabase.table("rollover_log").insert({
+            "date": today_str,
+            "carried": 1
+        }).execute()
+        
+        return True
+    except:
         return False
-    
-    # Log the rollover
-    run_query("INSERT INTO rollover_log (date, carried) VALUES (?, ?)", (today_str, 1))
-    
-    return True
 
 # -------------------- Export functions --------------------
 def export_to_excel(df):
@@ -472,17 +492,15 @@ def export_to_excel(df):
     return buf
 
 def export_to_pdf(df, title="Report"):
-    """Export DataFrame to PDF with proper font handling"""
+    """Export DataFrame to PDF"""
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=10)
     
-    # Use only Helvetica font (always available)
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 10, title, ln=1, align='C')
     pdf.ln(4)
     
-    # Sanitize text
     def safe_text(x):
         if pd.isna(x):
             return ""
@@ -495,12 +513,10 @@ def export_to_pdf(df, title="Report"):
     
     pdf.set_font("Helvetica", "B", 9)
     
-    # Header
     for col in cols:
         pdf.cell(col_w, 8, safe_text(col), border=1)
     pdf.ln()
     
-    # Rows
     pdf.set_font("Helvetica", "", 8)
     for _, row in df.iterrows():
         for item in row:
@@ -529,7 +545,6 @@ def export_to_pdf(df, title="Report"):
 # -------------------- Streamlit App UI --------------------
 st.set_page_config(page_title="DBF Fruit Manager", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS
 st.markdown("""
 <style>
     .stMetric {
@@ -543,19 +558,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🍎 DBF Fruit Manager — Box Deposits & Vendor Payments")
+st.title("🍎 DBF Fruit Manager — Cloud Persistent Storage")
 
-# Initialize database
-init_db()
-
-# Check if rollover needed
+# Check rollover
 today_str = date.today().isoformat()
-rollover_df = fetch_query("SELECT * FROM rollover_log WHERE date = ?", (today_str,))
-if rollover_df.empty:
-    if st.button("🔄 Start New Day", type="primary"):
-        if carry_forward_stock():
-            st.success("✅ New day started!")
-            st.rerun()
+try:
+    rollover_response = supabase.table("rollover_log").select("*").eq("date", today_str).execute()
+    if not rollover_response.data:
+        if st.button("🔄 Start New Day", type="primary"):
+            if carry_forward_stock():
+                st.success("✅ New day started!")
+                st.rerun()
+except:
+    pass
 
 tabs = st.tabs([
     "📋 Vendors", 
@@ -583,7 +598,6 @@ with tabs[0]:
             if st.form_submit_button("➕ Add Vendor", type="primary"):
                 if add_vendor(vname, vcontact):
                     st.success(f"✅ Vendor '{vname}' added successfully!")
-                    st.cache_data.clear()
                     st.rerun()
     
     with col2:
@@ -612,7 +626,6 @@ with tabs[1]:
                 if fruit.strip():
                     if add_stock(fruit.strip(), boxes, cost, stock_date.isoformat()):
                         st.success(f"✅ Added {boxes} boxes of {fruit} at ₹{cost}/box")
-                        st.cache_data.clear()
                         st.rerun()
                 else:
                     st.error("Fruit name is required")
@@ -656,8 +669,7 @@ with tabs[2]:
             
             with col3:
                 price_box = st.number_input("Price per Box (₹) *", min_value=0.0, value=700.0, step=10.0)
-                box_deposit = st.number_input("Box Deposit per Box (₹) *", min_value=0.0, value=BOX_DEPOSIT_DEFAULT, step=10.0, 
-                                             help="Refundable security deposit for the plastic box")
+                box_deposit = st.number_input("Box Deposit per Box (₹) *", min_value=0.0, value=BOX_DEPOSIT_DEFAULT, step=10.0)
                 st.caption(f"Sale Total: ₹{sell_boxes * price_box:.2f}")
                 st.caption(f"Box Deposit: ₹{sell_boxes * box_deposit:.2f}")
             
@@ -667,7 +679,7 @@ with tabs[2]:
                 if sell_to_vendor(sdate.isoformat(), vendor_id, fruit_choice, sell_boxes, 
                                  price_box, box_deposit, note):
                     st.success(f"✅ Sale recorded: {sell_boxes} boxes of {fruit_choice} to {vendor_choice}")
-                    st.info(f"📦 Box deposit collected: ₹{sell_boxes * box_deposit:.2f} (refundable on return)")
+                    st.info(f"📦 Box deposit collected: ₹{sell_boxes * box_deposit:.2f}")
                     st.balloons()
                     st.rerun()
 
@@ -675,7 +687,7 @@ with tabs[2]:
 with tabs[3]:
     st.header("Record Box Returns")
     
-    st.info("💡 When boxes are returned, the box deposit is refunded. The fruit payment remains due.")
+    st.info("💡 When boxes are returned, the box deposit is refunded")
     
     vendors_df = list_vendors()
     
@@ -691,15 +703,22 @@ with tabs[3]:
                 v_id = int(vendors_df[vendors_df['name'] == v_choice]['id'].iloc[0])
             
             with col2:
-                vendor_fruits = fetch_query("""
-                    SELECT DISTINCT fruit FROM sales WHERE vendor_id = ? ORDER BY fruit
-                """, (v_id,))
-                
-                if vendor_fruits.empty:
-                    st.warning(f"No sales recorded for {v_choice} yet")
+                # Get vendor's fruits
+                try:
+                    vendor_fruits_response = supabase.table("sales")\
+                        .select("fruit")\
+                        .eq("vendor_id", v_id)\
+                        .execute()
+                    vendor_fruits_data = pd.DataFrame(vendor_fruits_response.data)
+                    
+                    if vendor_fruits_data.empty:
+                        st.warning(f"No sales recorded for {v_choice} yet")
+                        fruit_r = st.text_input("Fruit Name", value="APPLE")
+                    else:
+                        unique_fruits = vendor_fruits_data['fruit'].unique().tolist()
+                        fruit_r = st.selectbox("Fruit *", unique_fruits)
+                except:
                     fruit_r = st.text_input("Fruit Name", value="APPLE")
-                else:
-                    fruit_r = st.selectbox("Fruit *", vendor_fruits['fruit'].tolist())
                 
                 returned_boxes = st.number_input("Boxes Returned *", min_value=1, value=1, step=1)
             
@@ -718,7 +737,7 @@ with tabs[3]:
 with tabs[4]:
     st.header("Record Fruit Payments")
     
-    st.info("💡 Record actual payments received for the fruit sold (NOT box deposits)")
+    st.info("💡 Record actual payments received for fruit sold (NOT box deposits)")
     
     vendors_df = list_vendors()
     
@@ -737,13 +756,14 @@ with tabs[4]:
                 # Show vendor's current due
                 summary = vendor_summary_table()
                 if not summary.empty:
-                    vendor_due = summary[summary['vendor_id'] == vid]['net_due'].iloc[0]
-                    deposits_held = summary[summary['vendor_id'] == vid]['net_deposits_held'].iloc[0]
-                    st.metric("Amount Due (for fruit)", f"₹{vendor_due:.2f}")
-                    st.metric("Box Deposits Held", f"₹{deposits_held:.2f}", help="Security deposit for boxes")
+                    vendor_row = summary[summary['vendor_id'] == vid]
+                    if not vendor_row.empty:
+                        vendor_due = vendor_row['net_due'].iloc[0]
+                        deposits_held = vendor_row['net_deposits_held'].iloc[0]
+                        st.metric("Amount Due (for fruit)", f"₹{vendor_due:.2f}")
+                        st.metric("Box Deposits Held", f"₹{deposits_held:.2f}")
                 
-                amount = st.number_input("Payment Amount (₹) *", min_value=0.0, value=0.0, step=100.0,
-                                        help="Payment for fruit purchase only")
+                amount = st.number_input("Payment Amount (₹) *", min_value=0.0, value=0.0, step=100.0)
                 pnote = st.text_area("Note (optional)", placeholder="Payment details...")
                 
                 if st.form_submit_button("💵 Record Payment", type="primary"):
@@ -753,17 +773,25 @@ with tabs[4]:
         
         with col2:
             st.subheader("Recent Payments")
-            recent_p = fetch_query("""
-                SELECT p.dt as Date, v.name as Vendor, p.amount as Amount, p.note as Note 
-                FROM payments p 
-                LEFT JOIN vendors v ON p.vendor_id = v.id 
-                ORDER BY p.dt DESC 
-                LIMIT 50
-            """)
-            if not recent_p.empty:
-                recent_p['Amount'] = recent_p['Amount'].apply(lambda x: f"₹{x:.2f}")
-                st.dataframe(recent_p, use_container_width=True, hide_index=True)
-            else:
+            try:
+                recent_p_response = supabase.table("payments")\
+                    .select("dt, vendor_id, amount, note")\
+                    .order("dt", desc=True)\
+                    .limit(50)\
+                    .execute()
+                recent_p = pd.DataFrame(recent_p_response.data)
+                
+                if not recent_p.empty:
+                    # Map vendor names
+                    vendor_map = dict(zip(vendors_df['id'], vendors_df['name']))
+                    recent_p['Vendor'] = recent_p['vendor_id'].map(vendor_map)
+                    recent_p = recent_p[['dt', 'Vendor', 'amount', 'note']]
+                    recent_p.columns = ['Date', 'Vendor', 'Amount', 'Note']
+                    recent_p['Amount'] = recent_p['Amount'].apply(lambda x: f"₹{x:.2f}")
+                    st.dataframe(recent_p, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No payments recorded yet")
+            except:
                 st.info("No payments recorded yet")
 
 # ---------- Tab 5: Vendor Dues ----------
@@ -777,7 +805,6 @@ with tabs[5]:
     if summary.empty:
         st.info("No transactions yet")
     else:
-        # Display metrics
         total_sales = summary['total_sales'].sum()
         total_due = summary['net_due'].sum()
         total_paid = summary['payments'].sum()
@@ -787,23 +814,20 @@ with tabs[5]:
         col1.metric("Total Sales", f"₹{total_sales:.2f}")
         col2.metric("Total Paid", f"₹{total_paid:.2f}")
         col3.metric("Total Due", f"₹{total_due:.2f}")
-        col4.metric("Box Deposits Held", f"₹{total_deposits:.2f}", help="Security deposits (refundable)")
+        col4.metric("Box Deposits Held", f"₹{total_deposits:.2f}")
         
         st.divider()
         
-        # Format and display summary
         summary_display = summary[['vendor_name','total_sales','payments','net_due','deposits_collected','deposits_refunded','net_deposits_held']].copy()
         summary_display.columns = ['Vendor', 'Total Sales (₹)', 'Payments (₹)', 'Amount Due (₹)', 
                                    'Deposits Collected (₹)', 'Deposits Refunded (₹)', 'Net Deposits Held (₹)']
         
-        # Format currency
         for col in ['Total Sales (₹)', 'Payments (₹)', 'Amount Due (₹)', 'Deposits Collected (₹)', 
                     'Deposits Refunded (₹)', 'Net Deposits Held (₹)']:
             summary_display[col] = summary_display[col].apply(lambda x: f"₹{x:.2f}")
         
         st.dataframe(summary_display, use_container_width=True, hide_index=True)
         
-        # Export options
         st.divider()
         col1, col2 = st.columns(2)
         
@@ -829,79 +853,80 @@ with tabs[5]:
 with tabs[6]:
     st.header("Sales & Profit/Loss Reports")
     
-    # Date filter
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("From Date", value=date.today().replace(day=1))
     with col2:
         end_date = st.date_input("To Date", value=date.today())
     
-    # Fetch sales data
-    sales_df = fetch_query("""
-        SELECT s.dt as Date, v.name as Vendor, s.fruit as Fruit, 
-               s.boxes as Boxes, s.price_per_box as Price, 
-               s.total_price as Total, s.box_deposit_collected as Box_Deposit
-        FROM sales s 
-        LEFT JOIN vendors v ON s.vendor_id = v.id
-        WHERE s.dt BETWEEN ? AND ?
-        ORDER BY s.dt DESC
-    """, (start_date.isoformat(), end_date.isoformat()))
-    
-    if sales_df.empty:
+    try:
+        sales_response = supabase.table("sales")\
+            .select("dt, vendor_id, fruit, boxes, price_per_box, total_price, box_deposit_collected")\
+            .gte("dt", start_date.isoformat())\
+            .lte("dt", end_date.isoformat())\
+            .order("dt", desc=True)\
+            .execute()
+        
+        sales_df = pd.DataFrame(sales_response.data)
+        
+        if sales_df.empty:
+            st.info("No sales in selected date range")
+        else:
+            # Map vendor names
+            vendors_df = list_vendors()
+            vendor_map = dict(zip(vendors_df['id'], vendors_df['name']))
+            sales_df['Vendor'] = sales_df['vendor_id'].map(vendor_map)
+            
+            total_revenue = float(sales_df['total_price'].sum())
+            cogs = compute_cogs_for_sales(sales_df.rename(columns={'boxes':'boxes','fruit':'fruit'}))
+            pnl = total_revenue - cogs
+            total_deposits = float(sales_df['box_deposit_collected'].sum())
+            
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Revenue", f"₹{total_revenue:.2f}")
+            col2.metric("COGS", f"₹{cogs:.2f}")
+            col3.metric("P&L", f"₹{pnl:.2f}", delta=f"{(pnl/cogs)*100:.1f}% margin" if cogs > 0 else "")
+            col4.metric("Box Deposits", f"₹{total_deposits:.2f}")
+            
+            st.divider()
+            
+            sales_display = sales_df[['dt', 'Vendor', 'fruit', 'boxes', 'price_per_box', 'total_price', 'box_deposit_collected']].copy()
+            sales_display.columns = ['Date', 'Vendor', 'Fruit', 'Boxes', 'Price/Box', 'Total', 'Box Deposit']
+            
+            for col in ['Price/Box', 'Total', 'Box Deposit']:
+                sales_display[col] = sales_display[col].apply(lambda x: f"₹{x:.2f}")
+            
+            st.subheader("Sales Details")
+            st.dataframe(sales_display, use_container_width=True, hide_index=True)
+            
+            st.divider()
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                excel_buf = export_to_excel(sales_df)
+                st.download_button(
+                    "📥 Download Excel",
+                    data=excel_buf,
+                    file_name=f"Sales_Report_{start_date}_{end_date}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col2:
+                pdf_buf = export_to_pdf(sales_df, title=f"Sales Report ({start_date} to {end_date})")
+                st.download_button(
+                    "📥 Download PDF",
+                    data=pdf_buf,
+                    file_name=f"Sales_Report_{start_date}_{end_date}.pdf",
+                    mime="application/pdf"
+                )
+    except:
         st.info("No sales in selected date range")
-    else:
-        # Calculate metrics
-        total_revenue = float(sales_df['Total'].sum())
-        cogs = compute_cogs_for_sales(sales_df.rename(columns={'Boxes':'boxes','Fruit':'fruit'}))
-        pnl = total_revenue - cogs
-        total_deposits = float(sales_df['Box_Deposit'].sum())
-        
-        # Display metrics
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Revenue", f"₹{total_revenue:.2f}")
-        col2.metric("COGS", f"₹{cogs:.2f}")
-        col3.metric("P&L", f"₹{pnl:.2f}", delta=f"{(pnl/cogs)*100:.1f}% margin" if cogs > 0 else "")
-        col4.metric("Box Deposits", f"₹{total_deposits:.2f}", help="Security deposits collected")
-        
-        st.divider()
-        
-        # Format sales data
-        sales_display = sales_df.copy()
-        sales_display['Price'] = sales_display['Price'].apply(lambda x: f"₹{x:.2f}")
-        sales_display['Total'] = sales_display['Total'].apply(lambda x: f"₹{x:.2f}")
-        sales_display['Box_Deposit'] = sales_display['Box_Deposit'].apply(lambda x: f"₹{x:.2f}")
-        sales_display.columns = ['Date', 'Vendor', 'Fruit', 'Boxes', 'Price/Box', 'Total', 'Box Deposit']
-        
-        st.subheader("Sales Details")
-        st.dataframe(sales_display, use_container_width=True, hide_index=True)
-        
-        # Export options
-        st.divider()
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            excel_buf = export_to_excel(sales_df)
-            st.download_button(
-                "📥 Download Excel",
-                data=excel_buf,
-                file_name=f"Sales_Report_{start_date}_{end_date}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        
-        with col2:
-            pdf_buf = export_to_pdf(sales_df, title=f"Sales Report ({start_date} to {end_date})")
-            st.download_button(
-                "📥 Download PDF",
-                data=pdf_buf,
-                file_name=f"Sales_Report_{start_date}_{end_date}.pdf",
-                mime="application/pdf"
-            )
 
 # ---------- Tab 7: Vendor Ledger ----------
 with tabs[7]:
     st.header("Vendor Ledger")
     
-    st.info("💡 Running Due = Amount owed for fruit | Running Deposits = Box deposits held (separate)")
+    st.info("💡 Running Due = Amount owed for fruit | Running Deposits = Box deposits held")
     
     vendors_df = list_vendors()
     
@@ -916,17 +941,15 @@ with tabs[7]:
         if ledger.empty:
             st.info(f"No transactions for {vchoice} yet")
         else:
-            # Show current balances
             final_due = ledger['running_due'].iloc[-1]
             final_deposits = ledger['running_deposits'].iloc[-1]
             
             col1, col2 = st.columns(2)
             col1.metric("Amount Due (Fruit)", f"₹{final_due:.2f}")
-            col2.metric("Box Deposits Held", f"₹{final_deposits:.2f}", help="Refundable security deposit")
+            col2.metric("Box Deposits Held", f"₹{final_deposits:.2f}")
             
             st.divider()
             
-            # Format ledger
             ledger_display = ledger.copy()
             ledger_display['sale_amount'] = ledger_display['sale_amount'].apply(lambda x: f"₹{x:.2f}")
             ledger_display['deposit'] = ledger_display['deposit'].apply(lambda x: f"₹{x:.2f}")
@@ -938,7 +961,6 @@ with tabs[7]:
             
             st.dataframe(ledger_display, use_container_width=True, hide_index=True)
             
-            # Export options
             st.divider()
             col1, col2 = st.columns(2)
             
@@ -960,6 +982,5 @@ with tabs[7]:
                     mime="application/pdf"
                 )
 
-# Footer
 st.divider()
-st.caption("🍎 DBF Fruit Manager v2.1 - Box Deposit System")
+st.caption("🍎 DBF Fruit Manager v3.0 - Cloud Persistent Storage with Supabase")
