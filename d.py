@@ -1169,63 +1169,59 @@ if authentication_status == None:
 
 # -------------------- AUTHENTICATED APP --------------------
 if authentication_status:
-    
-    
-    # Sidebar
-        with st.sidebar:
-            st.write(f'👤 **{name}**')
-    
-    # Show role and pending requests
-            if username == 'admin':
-                st.markdown("🔑 **Administrator**")
-            
-        # Show pending requests badge
-                request_counts = get_request_count_by_status()
-                if request_counts['pending'] > 0:
-                    st.warning(f"⏳ **{request_counts['pending']}** Pending Approval(s)")
-            else:
-                st.markdown("👥 **Standard User**")
-    
-            authenticator.logout()
-            st.divider()
 
-        
-        # ... rest of your cod
-        
-        with st.spinner("Loading..."):
-            stock = get_current_stock()
-            total_boxes = sum(stock.values()) if stock else 0
-            st.metric("📦 Stock", f"{total_boxes} boxes")
-            
-            today_summary = get_daily_summary()
-            if today_summary:
-                st.metric("💰 Today", f"₹{today_summary['total_sales']:.2f}")
-                st.metric("📊 Boxes", today_summary['boxes_sold'])
-            
-            summary = vendor_summary_table()
-            if not summary.empty:
-                total_due = summary['net_due'].sum()
-                st.metric("💵 Dues", f"₹{total_due:.2f}")
-        
+    # Sidebar
+    with st.sidebar:
+        st.write(f'👤 **{name}**')
+
+        # Show role and pending requests
+        if username == 'admin':
+            st.markdown("🔑 **Administrator**")
+
+            # Show pending requests badge
+            request_counts = get_request_count_by_status()
+            if request_counts['pending'] > 0:
+                st.warning(f"⏳ **{request_counts['pending']}** Pending Approval(s)")
+        else:
+            st.markdown("👥 **Standard User**")
+
+        authenticator.logout()
         st.divider()
-        
-        if st.button("🔄 Refresh", width='stretch'):
-            st.cache_data.clear()
-            st.success("✓")
-            st.rerun()
-        
-        backup_data = export_all_data()
-        if backup_data:
-            st.download_button(
-                "💾 Backup",
-                data=backup_data,
-                file_name=f"backup_{date.today()}.json",
-                mime="application/json",
-                width='stretch'
-            )
-    
-st.title("🍎 DBF MANAGEMENT SYSTEM")
-    
+
+    # Main content
+    with st.spinner("Loading..."):
+        stock = get_current_stock()
+        total_boxes = sum(stock.values()) if stock else 0
+        st.metric("📦 Stock", f"{total_boxes} boxes")
+
+        today_summary = get_daily_summary()
+        if today_summary:
+            st.metric("💰 Today", f"₹{today_summary['total_sales']:.2f}")
+            st.metric("📊 Boxes", today_summary['boxes_sold'])
+
+        summary = vendor_summary_table()
+        if not summary.empty:
+            total_due = summary['net_due'].sum()
+            st.metric("💵 Dues", f"₹{total_due:.2f}")
+
+    st.divider()
+
+    if st.button("🔄 Refresh"):
+        st.cache_data.clear()
+        st.success("✓")
+        st.rerun()
+
+    backup_data = export_all_data()
+    if backup_data:
+        st.download_button(
+            "💾 Backup",
+            data=backup_data,
+            file_name=f"backup_{date.today()}.json",
+            mime="application/json"
+        )
+
+    st.title("🍎 DBF MANAGEMENT SYSTEM")
+
     # Rollover check
     today_str = date.today().isoformat()
     try:
@@ -1239,7 +1235,7 @@ st.title("🍎 DBF MANAGEMENT SYSTEM")
                         st.rerun()
     except:
         pass
-    
+
     # Main tabs
     tabs = st.tabs([
         "📋 Vendors",
@@ -1253,8 +1249,9 @@ st.title("🍎 DBF MANAGEMENT SYSTEM")
         "📖 Ledger",
         "📅 Daily"
     ])
-    
+
     # ---------- Tab 0: Vendors ----------
+
     with tabs[0]:
         st.header("Vendors")
         
@@ -2114,6 +2111,7 @@ with tabs[5]:
     st.divider()
     st.caption(f"🍎 DBF MANAGEMENT SYSTEM v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
