@@ -9,7 +9,7 @@ from supabase import create_client, Client
 from typing import Optional, Dict, Any, Tuple, List
 import streamlit_authenticator as stauth
 
-BOX_DEPOSIT_DEFAULT = 200.0
+BOX_DEPOSIT_DEFAULT = 0
 
 # ==================== CONFIGURATION ====================
 @st.cache_resource
@@ -992,3 +992,4 @@ if auth_status:
     
     st.divider()
     st.caption(f"🍎 DBF v6.1 - {name} ({username})")
+
