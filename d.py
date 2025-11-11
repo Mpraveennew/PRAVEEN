@@ -683,7 +683,7 @@ if auth_status:
     
     # TAB 5: EDIT SALES (WITH APPROVAL WORKFLOW)
     with tabs[5]:
-    st.header("✏️ Edit Sales")
+        st.header("✏️ Edit Sales")
     
     if username == 'admin':
         # ADMIN VIEW
@@ -948,4 +948,5 @@ if auth_status:
     # Footer
     st.divider()
     st.caption(f"🍎 DBF v6.0 - {name}")
+
 
