@@ -1048,7 +1048,6 @@ if authentication_status == None:
 # -------------------- AUTHENTICATED APP --------------------
 if authentication_status:
     
-    st.title("🍎")
     
     # Sidebar
     with st.sidebar:
@@ -1771,6 +1770,7 @@ if authentication_status:
     st.divider()
     st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
