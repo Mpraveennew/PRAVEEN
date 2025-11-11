@@ -992,7 +992,7 @@ def carry_forward_stock() -> bool:
 
 # -------------------- STREAMLIT APP --------------------
 st.set_page_config(
-    page_title="DBF Fruit Manager",
+    page_title="DBF MANAGEMENT SYSTEM",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -1089,7 +1089,7 @@ if authentication_status:
                 width='stretch'
             )
     
-    st.title("🍎 DBF Fruit Manager")
+    st.title("🍎 DBF MANAGEMENT SYSTEM")
     
     # Rollover check
     today_str = date.today().isoformat()
@@ -1768,8 +1768,9 @@ if authentication_status:
     
     # Footer
     st.divider()
-    st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
+    st.caption(f"🍎 DBF MANAGEMENT SYSTEM v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
