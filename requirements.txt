@@ -2,4 +2,7 @@ streamlit
 pandas
 fpdf
 openpyxl
-st-supabase-connection
+supabase
+streamlit-authenticator
+pyyaml
+bcrypt
