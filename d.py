@@ -1172,22 +1172,22 @@ if authentication_status:
     
     
     # Sidebar
-    with st.sidebar:
-    st.write(f'👤 **{name}**')
+        with st.sidebar:
+            st.write(f'👤 **{name}**')
     
     # Show role and pending requests
-        if username == 'admin':
-            st.markdown("🔑 **Administrator**")
-        
+            if username == 'admin':
+                st.markdown("🔑 **Administrator**")
+            
         # Show pending requests badge
-            request_counts = get_request_count_by_status()
-            if request_counts['pending'] > 0:
-                st.warning(f"⏳ **{request_counts['pending']}** Pending Approval(s)")
-        else:
-            st.markdown("👥 **Standard User**")
+                request_counts = get_request_count_by_status()
+                if request_counts['pending'] > 0:
+                    st.warning(f"⏳ **{request_counts['pending']}** Pending Approval(s)")
+            else:
+                st.markdown("👥 **Standard User**")
     
-        authenticator.logout()
-        st.divider()
+            authenticator.logout()
+            st.divider()
 
         
         # ... rest of your cod
@@ -2114,6 +2114,7 @@ with tabs[5]:
     st.divider()
     st.caption(f"🍎 DBF MANAGEMENT SYSTEM v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
