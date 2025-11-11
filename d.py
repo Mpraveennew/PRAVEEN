@@ -538,7 +538,7 @@ if auth_status:
     st.title("🍎 DBF Management System")
     
     # Main tabs
-    tabs = st.tabs(["📋 Vendors", "📦 Stock", "💰 Sell", "↩️ Returns", "💵 Payments", 
+    tabs = st.tabs(["📋 Vendors", "📦 Stock", "💰 Sell", "↩️ box Returns", "💵 Payments", 
                     "✏️ Edit Sales", "📊 Dues", "📈 Reports", "📅 Daily"])
     
     # TAB 0: VENDORS
@@ -992,6 +992,7 @@ if auth_status:
     
     st.divider()
     st.caption(f"🍎 DBF v6.1 - {name} ({username})")
+
 
 
 
