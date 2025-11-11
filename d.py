@@ -392,7 +392,7 @@ if auth_status:
             stock = get_current_stock()
             if stock:
                 stock_df = pd.DataFrame(list(stock.items()), columns=['Fruit', 'Boxes'])
-                st.dataframe(stock_df, width=None, hide_index=True)
+                st.dataframe(stock_df, use_container_width=True, hide_index=True)
                 
                 low = {k: v for k, v in stock.items() if v <= 5}
                 if low:
@@ -484,7 +484,7 @@ if auth_status:
                         df = df[['dt', 'Vendor', 'amount']]
                         df.columns = ['Date', 'Vendor', 'Amount']
                         df['Amount'] = df['Amount'].apply(format_currency)
-                        st.dataframe(df, width=None, hide_index=True)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
                 except:
                     st.info("No payments")
     
@@ -510,7 +510,7 @@ if auth_status:
                 display[col] = display[col].apply(format_currency)
             
             display.columns = ['ID', 'Vendor', 'Sales', 'Paid', 'Due']
-            st.dataframe(display[['Vendor', 'Sales', 'Paid', 'Due']], width=None, hide_index=True)
+            st.dataframe(display[['Vendor', 'Sales', 'Paid', 'Due']], use_container_width=True, hide_index=True)
     
     # ==================== TAB 5: REPORTS ====================
     with tabs[5]:
@@ -547,7 +547,7 @@ if auth_status:
                 display.columns = ['Date', 'Vendor', 'Fruit', 'Boxes', 'Total']
                 display['Total'] = display['Total'].apply(format_currency)
                 
-                st.dataframe(display, width=None, hide_index=True)
+                st.dataframe(display, use_container_width=True, hide_index=True)
             else:
                 st.info("No sales")
         except Exception as e:
@@ -556,4 +556,5 @@ if auth_status:
     # Footer
     st.divider()
     st.caption(f"🍎 DBF Manager v6.0 - {name}")
+
 
