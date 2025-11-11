@@ -1004,7 +1004,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------- AUTHENTICATION --------------------
-# -------------------- AUTHENTICATION --------------------
 config = get_auth_config()
 
 authenticator = stauth.Authenticate(
@@ -1014,44 +1013,58 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-# NEW API - No return values, uses session state instead
-authenticator.login()
+# Login widget - NEW API for v0.4+
+try:
+    authenticator.login()
+except Exception as e:
+    st.error(f"Login error: {e}")
 
-# Get values from session state
-name = st.session_state.get("name")
-authentication_status = st.session_state.get("authentication_status")
-username = st.session_state.get("username")
-
-if authentication_status == False:
+# Get authentication status from session state
+if st.session_state.get("authentication_status"):
+    # User is logged in
+    name = st.session_state.get("name")
+    username = st.session_state.get("username")
+    
+elif st.session_state.get("authentication_status") == False:
+    # Wrong credentials
     st.error('❌ Username/password is incorrect')
-    with st.expander("ℹ️ Default Credentials"):
+    with st.expander("ℹ️ Default Login Credentials"):
         st.info("""
-        **Username:** `admin` | **Password:** `admin123`  
-        **Username:** `user` | **Password:** `user123`
+        Try these default credentials:
         
-        **To create new passwords, run:**
-        ```
-        import streamlit_authenticator as stauth
-        hashed = stauth.Hasher(['your_password']).generate()
-        print(hashed)
-        ```
+        **Username:** `admin`  
+        **Password:** `admin123`
+        
+        OR
+        
+        **Username:** `user`  
+        **Password:** `user123`
         """)
     st.stop()
-
-if authentication_status == None:
+    
+elif st.session_state.get("authentication_status") == None:
+    # Not logged in yet
     st.warning('⚠️ Please enter your username and password')
+    st.info("""
+    **Default Login:**
+    - Username: `admin`
+    - Password: `admin123`
+    """)
     st.stop()
 
 # -------------------- AUTHENTICATED APP --------------------
-if authentication_status:
+# User is authenticated, show the app
+name = st.session_state.get("name")
+username = st.session_state.get("username")
+
+# Sidebar
+with st.sidebar:
+    st.write(f'👤 **Welcome {name}**')
+    authenticator.logout()
+    st.divider()
     
-    # Sidebar
-    with st.sidebar:
-        st.write(f'👤 **{name}**')
-        authenticator.logout()  # ALSO CHANGED - No parameters needed
-        st.divider()
-        
-        # ... rest of your sidebar code
+    # ... rest of your sidebar code
+
 
 # -------------------- AUTHENTICATED APP --------------------
 if authentication_status:
@@ -1779,4 +1792,5 @@ if authentication_status:
     st.divider()
     st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
