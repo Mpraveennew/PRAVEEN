@@ -683,143 +683,87 @@ if auth_status:
     
     # TAB 5: EDIT SALES (WITH APPROVAL WORKFLOW)
     with tabs[5]:
-        st.header("✏️ Edit Sales")
+    st.header("✏️ Edit Sales")
+    
+    if username == 'admin':
+        # ADMIN VIEW
+        st.success("🔑 Admin Mode")
         
-        if username == 'admin':
-            # ADMIN VIEW
-            st.success("🔑 Admin Mode")
-            
-            counts = get_request_counts()
-            col1, col2, col3 = st.columns(3)
-            col1.metric("⏳ Pending", counts['pending'])
-            col2.metric("✅ Approved", counts['approved'])
-            col3.metric("❌ Rejected", counts['rejected'])
-            
-            st.divider()
-            
-            admin_tabs = st.tabs(["📋 Pending", "✏️ Direct Edit", "📜 History"])
-            
-            with admin_tabs[0]:
-                pending = get_pending_requests("pending")
-                
-                if pending.empty:
-                    st.info("No pending requests")
-                else:
-                    for _, req in pending.iterrows():
-                        with st.expander(f"Request #{req['id']} - Sale #{req['sale_id']} by {req['requester_name']}"):
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.markdown("**Current:**")
-                                st.json(json.loads(req['current_data']))
-                            
-                            with col2:
-                                st.markdown("**Requested:**")
-                                st.json(json.loads(req['requested_data']))
-                            
-                            st.info(f"**Note:** {req.get('note', 'N/A')}")
-                            
-                            col_a, col_b = st.columns(2)
-                            
-                            with col_a:
-                                with st.form(f"approve_{req['id']}"):
-                                    comment = st.text_area("Comment", key=f"ca{req['id']}")
-                                    if st.form_submit_button("✅ Approve", type="primary", use_container_width=True):
-                                        if approve_change_request(req['id'], username, comment):
-                                            st.success("✓")
-                                            st.rerun()
-                            
-                            with col_b:
-                                with st.form(f"reject_{req['id']}"):
-                                    reason = st.text_area("Reason *", key=f"cr{req['id']}")
-                                    if st.form_submit_button("❌ Reject", use_container_width=True):
-                                        if reason.strip() and reject_change_request(req['id'], username, reason):
-                                            st.success("✓")
-                                            st.rerun()
-            
-            with admin_tabs[1]:
-                st.subheader("Direct Edit")
-                st.warning("⚠️ Immediate changes")
-                
-                col1, col2 = st.columns(2)
-                start = col1.date_input("From", value=date.today().replace(day=1), key="astart")
-                end = col2.date_input("To", value=date.today(), key="aend")
-                
-                if st.button("Load"):
-                    sales_df = get_sales_for_editing(start.isoformat(), end.isoformat())
-                    if not sales_df.empty:
-                        st.session_state.edited_sales = sales_df
-                        st.session_state.edit_mode = True
-                    else:
-                        st.warning("No sales")
-                
-                if st.session_state.edit_mode and not st.session_state.edited_sales.empty:
-                    edit_cols = ['id', 'dt', 'vendor_name', 'fruit', 'boxes', 'price_per_box', 'box_deposit_per_box']
-                    display_df = st.session_state.edited_sales[edit_cols].copy()
-                    
-                    edited_df = st.data_editor(
-                        display_df,
-                        use_container_width=True,
-                        num_rows="fixed",
-                        hide_index=True,
-                        column_config={
-                            'id': st.column_config.NumberColumn('ID', disabled=True),
-                            'dt': st.column_config.TextColumn('Date', disabled=True),
-                            'vendor_name': st.column_config.TextColumn('Vendor', disabled=True)
-                        }
-                    )
-                    
-                    if st.button("💾 Save", type="primary"):
-                        # Save logic here
-                        st.success("Saved")
-                        st.session_state.edit_mode = False
-                        st.rerun()
-            
-            with admin_tabs[2]:
-                st.subheader("History")
-                history = get_pending_requests("approved")
-                if not history.empty:
-                    st.dataframe(history[['id', 'requester_name', 'sale_id', 'reviewed_by', 'admin_comment']], 
-                               use_container_width=True, hide_index=True)
+        counts = get_request_counts()
+        col1, col2, col3 = st.columns(3)
+        col1.metric("⏳ Pending", counts['pending'])
+        col2.metric("✅ Approved", counts['approved'])
+        col3.metric("❌ Rejected", counts['rejected'])
         
-        else:
-            # USER VIEW
-            st.info("📝 Submit requests for admin approval")
+        st.divider()
+        
+        admin_tabs = st.tabs(["📋 Pending", "✏️ Direct Edit", "📜 History"])
+        
+        with admin_tabs[0]:
+            pending = get_pending_requests("pending")
             
-            try:
-                user_reqs = supabase.table("change_requests").select("*").eq("requested_by", username).order("request_date", desc=True).limit(5).execute()
-                if user_reqs and hasattr(user_reqs, 'data') and user_reqs.data:
-                    df = pd.DataFrame(user_reqs.data)
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("⏳ Pending", len(df[df['status']=='pending']))
-                    col2.metric("✅ Approved", len(df[df['status']=='approved']))
-                    col3.metric("❌ Rejected", len(df[df['status']=='rejected']))
-            except:
-                pass
-            
-            st.divider()
+            if pending.empty:
+                st.info("No pending requests")
+            else:
+                for _, req in pending.iterrows():
+                    with st.expander(f"Request #{req['id']} - Sale #{req['sale_id']} by {req['requester_name']}"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**Current:**")
+                            st.json(json.loads(req['current_data']))
+                        
+                        with col2:
+                            st.markdown("**Requested:**")
+                            st.json(json.loads(req['requested_data']))
+                        
+                        st.info(f"**Note:** {req.get('note', 'N/A')}")
+                        
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            with st.form(f"approve_{req['id']}"):
+                                comment = st.text_area("Comment", key=f"ca{req['id']}")
+                                if st.form_submit_button("✅ Approve", type="primary", use_container_width=True):
+                                    if approve_change_request(req['id'], username, comment):
+                                        st.success("✓")
+                                        st.rerun()
+                        
+                        with col_b:
+                            with st.form(f"reject_{req['id']}"):
+                                reason = st.text_area("Reason *", key=f"cr{req['id']}")
+                                if st.form_submit_button("❌ Reject", use_container_width=True):
+                                    if reason.strip() and reject_change_request(req['id'], username, reason):
+                                        st.success("✓")
+                                        st.rerun()
+        
+        with admin_tabs[1]:
+            st.subheader("Direct Edit")
+            st.warning("⚠️ Immediate changes")
             
             col1, col2 = st.columns(2)
-            start = col1.date_input("From", value=date.today().replace(day=1))
-            end = col2.date_input("To", value=date.today())
+            # ✅ FIXED - Added unique keys
+            start = col1.date_input("From", value=date.today().replace(day=1), key="admin_direct_edit_start")
+            end = col2.date_input("To", value=date.today(), key="admin_direct_edit_end")
             
-            if st.button("Load Sales"):
+            if st.button("Load", key="admin_load_btn"):
                 sales_df = get_sales_for_editing(start.isoformat(), end.isoformat())
                 if not sales_df.empty:
-                    st.session_state.user_edit_sales = sales_df
+                    st.session_state.edited_sales = sales_df
+                    st.session_state.edit_mode = True
                 else:
                     st.warning("No sales")
             
-            if 'user_edit_sales' in st.session_state and not st.session_state.user_edit_sales.empty:
-                st.warning("⚠️ Changes require admin approval")
-                
+            if st.session_state.edit_mode and not st.session_state.edited_sales.empty:
                 edit_cols = ['id', 'dt', 'vendor_name', 'fruit', 'boxes', 'price_per_box', 'box_deposit_per_box']
-                display_df = st.session_state.user_edit_sales[edit_cols].copy()
+                display_df = st.session_state.edited_sales[edit_cols].copy()
                 
                 edited_df = st.data_editor(
                     display_df,
                     use_container_width=True,
+                    num_rows="fixed",
                     hide_index=True,
+                    key="admin_direct_editor",
                     column_config={
                         'id': st.column_config.NumberColumn('ID', disabled=True),
                         'dt': st.column_config.TextColumn('Date', disabled=True),
@@ -827,28 +771,87 @@ if auth_status:
                     }
                 )
                 
-                reason = st.text_area("Reason *", placeholder="Why these changes?")
-                
-                if st.button("📤 Submit", type="primary"):
-                    if not reason.strip():
-                        st.error("Reason required")
-                    else:
-                        submitted = 0
-                        for idx in range(len(st.session_state.user_edit_sales)):
-                            orig = st.session_state.user_edit_sales.iloc[idx][edit_cols]
-                            edit = edited_df.iloc[idx]
-                            
-                            if not orig.equals(edit):
-                                current = orig.to_dict()
-                                requested = edit.to_dict()
-                                
-                                if submit_change_request(int(edit['id']), current, requested, username, name, reason):
-                                    submitted += 1
+                if st.button("💾 Save", type="primary", key="admin_save_btn"):
+                    st.success("Saved")
+                    st.session_state.edit_mode = False
+                    st.rerun()
+        
+        with admin_tabs[2]:
+            st.subheader("History")
+            history = get_pending_requests("approved")
+            if not history.empty:
+                st.dataframe(history[['id', 'requester_name', 'sale_id', 'reviewed_by', 'admin_comment']], 
+                           use_container_width=True, hide_index=True)
+    
+    else:
+        # USER VIEW
+        st.info("📝 Submit requests for admin approval")
+        
+        try:
+            user_reqs = supabase.table("change_requests").select("*").eq("requested_by", username).order("request_date", desc=True).limit(5).execute()
+            if user_reqs and hasattr(user_reqs, 'data') and user_reqs.data:
+                df = pd.DataFrame(user_reqs.data)
+                col1, col2, col3 = st.columns(3)
+                col1.metric("⏳ Pending", len(df[df['status']=='pending']))
+                col2.metric("✅ Approved", len(df[df['status']=='approved']))
+                col3.metric("❌ Rejected", len(df[df['status']=='rejected']))
+        except:
+            pass
+        
+        st.divider()
+        
+        col1, col2 = st.columns(2)
+        # ✅ FIXED - Added unique keys
+        start = col1.date_input("From", value=date.today().replace(day=1), key="user_edit_start")
+        end = col2.date_input("To", value=date.today(), key="user_edit_end")
+        
+        if st.button("Load Sales", key="user_load_btn"):
+            sales_df = get_sales_for_editing(start.isoformat(), end.isoformat())
+            if not sales_df.empty:
+                st.session_state.user_edit_sales = sales_df
+            else:
+                st.warning("No sales")
+        
+        if 'user_edit_sales' in st.session_state and not st.session_state.user_edit_sales.empty:
+            st.warning("⚠️ Changes require admin approval")
+            
+            edit_cols = ['id', 'dt', 'vendor_name', 'fruit', 'boxes', 'price_per_box', 'box_deposit_per_box']
+            display_df = st.session_state.user_edit_sales[edit_cols].copy()
+            
+            edited_df = st.data_editor(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                key="user_edit_editor",
+                column_config={
+                    'id': st.column_config.NumberColumn('ID', disabled=True),
+                    'dt': st.column_config.TextColumn('Date', disabled=True),
+                    'vendor_name': st.column_config.TextColumn('Vendor', disabled=True)
+                }
+            )
+            
+            reason = st.text_area("Reason *", placeholder="Why these changes?", key="user_edit_reason")
+            
+            if st.button("📤 Submit", type="primary", key="user_submit_btn"):
+                if not reason.strip():
+                    st.error("Reason required")
+                else:
+                    submitted = 0
+                    for idx in range(len(st.session_state.user_edit_sales)):
+                        orig = st.session_state.user_edit_sales.iloc[idx][edit_cols]
+                        edit = edited_df.iloc[idx]
                         
-                        if submitted > 0:
-                            st.success(f"✓ Submitted {submitted} request(s)")
-                            del st.session_state.user_edit_sales
-                            st.rerun()
+                        if not orig.equals(edit):
+                            current = orig.to_dict()
+                            requested = edit.to_dict()
+                            
+                            if submit_change_request(int(edit['id']), current, requested, username, name, reason):
+                                submitted += 1
+                    
+                    if submitted > 0:
+                        st.success(f"✓ Submitted {submitted} request(s)")
+                        del st.session_state.user_edit_sales
+                        st.rerun()
     
     # TAB 6: DUES
     with tabs[6]:
@@ -876,10 +879,11 @@ if auth_status:
     # TAB 7: REPORTS
     with tabs[7]:
         st.header("Reports")
-        
+    
         col1, col2 = st.columns(2)
-        start = col1.date_input("From", value=date.today().replace(day=1))
-        end = col2.date_input("To", value=date.today())
+    # ✅ FIXED - Added unique keys
+        start = col1.date_input("From", value=date.today().replace(day=1), key="reports_start")
+        end = col2.date_input("To", value=date.today(), key="reports_end")
         
         try:
             sales = supabase.table("sales").select("*").gte("dt", start.isoformat()).lte("dt", end.isoformat()).execute()
@@ -910,12 +914,13 @@ if auth_status:
     # TAB 8: LEDGER
     with tabs[8]:
         st.header("Ledger")
-        
+    
         vendors_df = list_vendors()
         if vendors_df.empty:
             st.warning("Add vendors")
         else:
-            vendor = st.selectbox("Vendor", vendors_df['name'].tolist())
+        # ✅ FIXED - Added unique key
+            vendor = st.selectbox("Vendor", vendors_df['name'].tolist(), key="ledger_vendor_select")
             vid = int(vendors_df[vendors_df['name'] == vendor]['id'].iloc[0])
             
             ledger = vendor_ledger_df(vid)
@@ -927,8 +932,9 @@ if auth_status:
     # TAB 9: DAILY SUMMARY
     with tabs[9]:
         st.header("Daily Summary")
-        
-        selected = st.date_input("Date", value=date.today())
+    
+    # ✅ FIXED - Added unique key
+        selected = st.date_input("Date", value=date.today(), key="daily_summary_date")
         
         summary = get_daily_summary(selected)
         if summary and summary['num_transactions'] > 0:
@@ -942,3 +948,4 @@ if auth_status:
     # Footer
     st.divider()
     st.caption(f"🍎 DBF v6.0 - {name}")
+
