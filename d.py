@@ -366,7 +366,7 @@ if auth_status:
         with col2:
             vendors_df = list_vendors()
             if not vendors_df.empty:
-                st.dataframe(vendors_df, width=None, hide_index=True)
+                st.dataframe(vendors_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No vendors")
     
@@ -556,3 +556,4 @@ if auth_status:
     # Footer
     st.divider()
     st.caption(f"🍎 DBF Manager v6.0 - {name}")
+
