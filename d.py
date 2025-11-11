@@ -1004,6 +1004,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------- AUTHENTICATION --------------------
+# -------------------- AUTHENTICATION --------------------
 config = get_auth_config()
 
 authenticator = stauth.Authenticate(
@@ -1013,7 +1014,13 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-name, authentication_status, username = authenticator.login('main')
+# NEW API - No return values, uses session state instead
+authenticator.login()
+
+# Get values from session state
+name = st.session_state.get("name")
+authentication_status = st.session_state.get("authentication_status")
+username = st.session_state.get("username")
 
 if authentication_status == False:
     st.error('❌ Username/password is incorrect')
@@ -1041,7 +1048,18 @@ if authentication_status:
     # Sidebar
     with st.sidebar:
         st.write(f'👤 **{name}**')
-        authenticator.logout('Logout', 'sidebar')
+        authenticator.logout()  # ALSO CHANGED - No parameters needed
+        st.divider()
+        
+        # ... rest of your sidebar code
+
+# -------------------- AUTHENTICATED APP --------------------
+if authentication_status:
+    
+    # Sidebar
+    with st.sidebar:
+        st.write(f'👤 **{name}**')
+        authenticator.logout()
         st.divider()
         
         st.title("🍎 Dashboard")
@@ -1761,3 +1779,4 @@ if authentication_status:
     st.divider()
     st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
