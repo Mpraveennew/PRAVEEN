@@ -1004,14 +1004,6 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
     }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    @media (max-width: 768px) {
-        .row-widget.stButton > button {
-            width: 100%;
-        }
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1025,61 +1017,38 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-# Login widget - NEW API for v0.4+
-try:
-    authenticator.login()
-except Exception as e:
-    st.error(f"Login error: {e}")
+# Show login form
+authenticator.login()
 
 # Get authentication status from session state
-if st.session_state.get("authentication_status"):
-    # User is logged in
-    name = st.session_state.get("name")
-    username = st.session_state.get("username")
-    
-elif st.session_state.get("authentication_status") == False:
-    # Wrong credentials
+authentication_status = st.session_state.get("authentication_status")
+name = st.session_state.get("name")
+username = st.session_state.get("username")
+
+# Handle authentication results
+if authentication_status == False:
     st.error('❌ Username/password is incorrect')
-    with st.expander("ℹ️ Default Login Credentials"):
+    with st.expander("ℹ️ Help"):
         st.info("""
-        Try these default credentials:
-        
-        **Username:** `admin`  
-        **Password:** `admin123`
-        
-        OR
-        
-        **Username:** `user`  
-        **Password:** `user123`
+        **Default credentials:**
+        - Username: `admin`
+        - Password: `admin123`
         """)
     st.stop()
-    
-elif st.session_state.get("authentication_status") == None:
-    # Not logged in yet
-    st.warning('⚠️ Please enter your username and password')
+
+if authentication_status == None:
+    st.warning('⚠️ Please login to continue')
     st.info("""
-    **Default Login:**
+    **Try these credentials:**
     - Username: `admin`
     - Password: `admin123`
     """)
     st.stop()
 
 # -------------------- AUTHENTICATED APP --------------------
-# User is authenticated, show the app
-name = st.session_state.get("name")
-username = st.session_state.get("username")
-
-# Sidebar
-with st.sidebar:
-    st.write(f'👤 **Welcome {name}**')
-    authenticator.logout()
-    st.divider()
-    
-    # ... rest of your sidebar code
-
-
-# -------------------- AUTHENTICATED APP --------------------
 if authentication_status:
+    
+    st.title("🍎 DBF Fruit Manager")
     
     # Sidebar
     with st.sidebar:
@@ -1087,10 +1056,7 @@ if authentication_status:
         authenticator.logout()
         st.divider()
         
-        st.title("🍎 Dashboard")
-        st.session_state.mobile_view = st.checkbox("📱 Mobile", value=st.session_state.mobile_view)
-        
-        st.divider()
+        # ... rest of your cod
         
         with st.spinner("Loading..."):
             stock = get_current_stock()
@@ -1804,6 +1770,7 @@ if authentication_status:
     st.divider()
     st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
