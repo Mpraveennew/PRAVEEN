@@ -1224,7 +1224,7 @@ if authentication_status:
                 width='stretch'
             )
     
-    st.title("🍎 DBF MANAGEMENT SYSTEM")
+st.title("🍎 DBF MANAGEMENT SYSTEM")
     
     # Rollover check
     today_str = date.today().isoformat()
@@ -2114,6 +2114,7 @@ with tabs[5]:
     st.divider()
     st.caption(f"🍎 DBF MANAGEMENT SYSTEM v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
