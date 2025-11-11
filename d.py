@@ -13,12 +13,24 @@ BOX_DEPOSIT_DEFAULT = 200.0
 
 # -------------------- Authentication Configuration --------------------
 def get_auth_config():
-    """Get authentication configuration"""
+    """Get authentication configuration from secrets"""
     try:
+        # Try to get from secrets first
         if "auth" in st.secrets:
+            credentials = {}
+            
+            # Build credentials dictionary from secrets
+            if "credentials" in st.secrets["auth"]:
+                if "usernames" in st.secrets["auth"]["credentials"]:
+                    for username, user_data in st.secrets["auth"]["credentials"]["usernames"].items():
+                        credentials[username] = {
+                            'name': user_data.get('name', username),
+                            'password': user_data.get('password', '')
+                        }
+            
             return {
                 'credentials': {
-                    'usernames': dict(st.secrets["auth"]["usernames"])
+                    'usernames': credentials
                 },
                 'cookie': {
                     'name': st.secrets["auth"]["cookie"]["name"],
@@ -26,26 +38,26 @@ def get_auth_config():
                     'expiry_days': int(st.secrets["auth"]["cookie"]["expiry_days"])
                 }
             }
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Error loading auth config: {e}")
     
-    # Default credentials - CHANGE THESE IN PRODUCTION
+    # Fallback to default credentials
     return {
         'credentials': {
             'usernames': {
                 'admin': {
                     'name': 'Admin User',
-                    'password': '$2b$12$KIXqwEv5Qi1YXJZPqYR7oOeGy3HZqGKOJXoq5vDZxJxVQ.KZ1Y.bG'  # admin123
+                    'password': '$2b$12$KIXqwEv5Qi1YXJZPqYR7oOeGy3HZqGKOJXoq5vDZxJxVQ.KZ1Y.bG'
                 },
                 'user': {
                     'name': 'Regular User',
-                    'password': '$2b$12$vHJhj5D3l0xKJsX9NhZmbuZvYN.LhJ1DvC8yXqZKqXGQ5PZ9YJxQu'  # user123
+                    'password': '$2b$12$vHJhj5D3l0xKJsX9NhZmbuZvYN.LhJ1DvC8yXqZKqXGQ5PZ9YJxQu'
                 }
             }
         },
         'cookie': {
             'name': 'dbf_auth_cookie',
-            'key': 'dbf_secret_key_change_this',
+            'key': 'default_secret_key_12345',
             'expiry_days': 30
         }
     }
@@ -1792,5 +1804,6 @@ if authentication_status:
     st.divider()
     st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
