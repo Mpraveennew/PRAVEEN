@@ -1075,7 +1075,7 @@ if authentication_status:
         
         st.divider()
         
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", width='stretch'):
             st.cache_data.clear()
             st.success("✓")
             st.rerun()
@@ -1087,7 +1087,7 @@ if authentication_status:
                 data=backup_data,
                 file_name=f"backup_{date.today()}.json",
                 mime="application/json",
-                use_container_width=True
+                width='stretch'
             )
     
     st.title("🍎 DBF Fruit Manager")
@@ -1150,7 +1150,7 @@ if authentication_status:
             if vendors_df.empty:
                 st.info("No vendors")
             else:
-                st.dataframe(vendors_df, use_container_width=True, hide_index=True)
+                st.dataframe(vendors_df, width='stretch', hide_index=True)
     
     # ---------- Tab 1: Stock ----------
     with tabs[1]:
@@ -1186,7 +1186,7 @@ if authentication_status:
                         return [''] * len(row)
                     
                     styled = stock_df.style.apply(highlight_low, axis=1)
-                    st.dataframe(styled, use_container_width=True, hide_index=True)
+                    st.dataframe(styled, width='stretch', hide_index=True)
                     
                     low_stock = {k: v for k, v in stock.items() if v <= 5}
                     if low_stock:
@@ -1241,7 +1241,7 @@ if authentication_status:
                 
                 note = st.text_area("Note (optional)")
                 
-                if st.form_submit_button("💰 Record Sale", type="primary", use_container_width=True):
+                if st.form_submit_button("💰 Record Sale", type="primary", width='stretch'):
                     with st.spinner("Recording..."):
                         if sell_to_vendor(sdate.isoformat(), vendor_id, fruit_choice, sell_boxes, 
                                          price_box, box_deposit, note):
@@ -1291,7 +1291,7 @@ if authentication_status:
                 
                 rnote = st.text_area("Note (optional)")
                 
-                if st.form_submit_button("↩️ Record Return", type="primary", use_container_width=True):
+                if st.form_submit_button("↩️ Record Return", type="primary", width='stretch'):
                     with st.spinner("Recording..."):
                         if record_return(rdate.isoformat(), v_id, fruit_r, returned_boxes, box_deposit, rnote):
                             st.success(f"✅ Return recorded!")
@@ -1341,7 +1341,7 @@ if authentication_status:
                     amount = st.number_input("Amount (₹) *", min_value=0.0, value=0.0, step=100.0)
                     pnote = st.text_area("Note (optional)")
                     
-                    if st.form_submit_button("💵 Record", type="primary", use_container_width=True):
+                    if st.form_submit_button("💵 Record", type="primary", width='stretch'):
                         if amount > 0:
                             with st.spinner("Recording..."):
                                 if record_payment(pdate.isoformat(), vid, amount, pnote):
@@ -1367,7 +1367,7 @@ if authentication_status:
                             recent_p = recent_p[['dt', 'Vendor', 'amount', 'note']]
                             recent_p.columns = ['Date', 'Vendor', 'Amount', 'Note']
                             recent_p['Amount'] = recent_p['Amount'].apply(lambda x: f"₹{x:.2f}")
-                            st.dataframe(recent_p, use_container_width=True, hide_index=True)
+                            st.dataframe(recent_p, width='stretch', hide_index=True)
                         else:
                             st.info("No payments yet")
                     except:
@@ -1405,30 +1405,31 @@ if authentication_status:
             
             column_config = {
                 'id': st.column_config.NumberColumn('ID', disabled=True),
-                'dt': st.column_config.DateColumn('Date'),
+                'dt': st.column_config.TextColumn('Date', disabled=True),  # ✅ FIXED - Changed to TextColumn
                 'vendor_name': st.column_config.TextColumn('Vendor', disabled=True),
                 'fruit': st.column_config.TextColumn('Fruit'),
                 'boxes': st.column_config.NumberColumn('Boxes', min_value=1),
                 'price_per_box': st.column_config.NumberColumn('Price/Box', min_value=0.0),
                 'box_deposit_per_box': st.column_config.NumberColumn('Deposit/Box', min_value=0.0),
                 'note': st.column_config.TextColumn('Note')
-            }
-            
+                }
+
             edited_df = st.data_editor(
                 display_df,
                 column_config=column_config,
-                use_container_width=True,
+                width='stretch',  # ✅ FIXED - Updated deprecated parameter
                 num_rows="fixed",
                 key="sales_editor",
                 hide_index=True
             )
+
             
             st.divider()
             
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                if st.button("💾 Save", type="primary", use_container_width=True):
+                if st.button("💾 Save", type="primary", width='stretch'):
                     with st.spinner("Saving..."):
                         changes_made = False
                         
@@ -1464,7 +1465,7 @@ if authentication_status:
                             st.info("No changes detected")
             
             with col2:
-                if st.button("❌ Cancel", use_container_width=True):
+                if st.button("❌ Cancel", width='stretch'):
                     st.session_state.edit_mode = False
                     st.session_state.edited_sales = pd.DataFrame()
                     st.rerun()
@@ -1476,11 +1477,11 @@ if authentication_status:
                     data=excel_buf,
                     file_name=f"sales_edit_{date.today()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch'
                 )
             
             with col4:
-                if st.button("🗑️ Delete Mode", use_container_width=True):
+                if st.button("🗑️ Delete Mode", width='stretch'):
                     st.session_state.delete_mode = not st.session_state.delete_mode
             
             if st.session_state.delete_mode:
@@ -1552,7 +1553,7 @@ if authentication_status:
                 
                 summary_display['Margin%'] = summary_display['Margin%'].apply(lambda x: f"{x:.1f}%")
                 
-                st.dataframe(summary_display, use_container_width=True, hide_index=True)
+                st.dataframe(summary_display, width='stretch', hide_index=True)
                 
                 st.divider()
                 col1, col2, col3 = st.columns(3)
@@ -1564,7 +1565,7 @@ if authentication_status:
                         data=excel_buf,
                         file_name=f"Dues_{date.today()}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                        width='stretch'
                     )
                 
                 with col2:
@@ -1574,7 +1575,7 @@ if authentication_status:
                         data=pdf_buf,
                         file_name=f"Dues_{date.today()}.pdf",
                         mime="application/pdf",
-                        use_container_width=True
+                        width='stretch'
                     )
     
     # ---------- Tab 7: Reports ----------
@@ -1628,7 +1629,7 @@ if authentication_status:
                     for col in ['Price', 'Total']:
                         sales_display[col] = sales_display[col].apply(lambda x: f"₹{x:.2f}")
                     
-                    st.dataframe(sales_display, use_container_width=True, hide_index=True)
+                    st.dataframe(sales_display, width='stretch', hide_index=True)
                     
                     st.divider()
                     col1, col2 = st.columns(2)
@@ -1640,7 +1641,7 @@ if authentication_status:
                             data=excel_buf,
                             file_name=f"Sales_{start_date}_{end_date}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
+                            width='stretch'
                         )
                     
                     with col2:
@@ -1650,7 +1651,7 @@ if authentication_status:
                             data=pdf_buf,
                             file_name=f"Sales_{start_date}_{end_date}.pdf",
                             mime="application/pdf",
-                            use_container_width=True
+                            width='stretch'
                         )
             except:
                 st.info("No sales")
@@ -1691,7 +1692,7 @@ if authentication_status:
                 ledger_display.columns = ['Date', 'Type', 'Fruit', 'Qty', 'Amount', 'Deposit', 
                                          'Note', 'Running Due', 'Running Deposits']
                 
-                st.dataframe(ledger_display, use_container_width=True, hide_index=True)
+                st.dataframe(ledger_display, width='stretch', hide_index=True)
                 
                 st.divider()
                 col1, col2 = st.columns(2)
@@ -1703,7 +1704,7 @@ if authentication_status:
                         data=excel_buf,
                         file_name=f"{vchoice}_Ledger_{date.today()}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                        width='stretch'
                     )
                 
                 with col2:
@@ -1713,7 +1714,7 @@ if authentication_status:
                         data=pdf_buf,
                         file_name=f"{vchoice}_Ledger_{date.today()}.pdf",
                         mime="application/pdf",
-                        use_container_width=True
+                        width='stretch'
                     )
     
     # ---------- Tab 9: Daily Summary ----------
@@ -1770,6 +1771,7 @@ if authentication_status:
     st.divider()
     st.caption(f"🍎 DBF Fruit Manager v5.0 - User: {name}")
     st.caption("Features: Secure Login ✓ | Edit Sales ✓ | Full Analytics ✓ | Mobile Responsive ✓")
+
 
 
 
