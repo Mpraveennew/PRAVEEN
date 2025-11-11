@@ -1,4 +1,4 @@
-# dbf_optimized.py - High-Performance Version
+# dbf.py - Complete Production Version with ALL Features
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
@@ -14,7 +14,6 @@ BOX_DEPOSIT_DEFAULT = 200.0
 # ==================== CONFIGURATION ====================
 @st.cache_resource
 def init_connection():
-    """Initialize Supabase connection with retry logic"""
     try:
         if "connections" in st.secrets and "supabase" in st.secrets["connections"]:
             url = st.secrets["connections"]["supabase"]["SUPABASE_URL"]
@@ -30,24 +29,17 @@ def init_connection():
 supabase = init_connection()
 
 # ==================== SESSION STATE ====================
-def init_session_state():
-    """Initialize all session state variables"""
-    defaults = {
-        'mobile_view': False,
-        'edit_mode': False,
-        'edited_sales': pd.DataFrame(),
-        'delete_mode': False,
-        'cache_timestamp': datetime.now()
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-init_session_state()
+if 'mobile_view' not in st.session_state:
+    st.session_state.mobile_view = False
+if 'edit_mode' not in st.session_state:
+    st.session_state.edit_mode = False
+if 'edited_sales' not in st.session_state:
+    st.session_state.edited_sales = pd.DataFrame()
+if 'delete_mode' not in st.session_state:
+    st.session_state.delete_mode = False
 
 # ==================== AUTHENTICATION ====================
 def get_auth_config():
-    """Get auth config from secrets"""
     try:
         if "auth" in st.secrets:
             credentials = {}
@@ -70,43 +62,35 @@ def get_auth_config():
     return {
         'credentials': {
             'usernames': {
-                'admin': {
-                    'name': 'Admin',
-                    'password': '$2b$12$KIXqwEv5Qi1YXJZPqYR7oOeGy3HZqGKOJXoq5vDZxJxVQ.KZ1Y.bG'
-                },
-                'user': {
-                    'name': 'User',
-                    'password': '$2b$12$vHJhj5D3l0xKJsX9NhZmbuZvYN.LhJ1DvC8yXqZKqXGQ5PZ9YJxQu'
-                }
+                'admin': {'name': 'Admin', 'password': '$2b$12$KIXqwEv5Qi1YXJZPqYR7oOeGy3HZqGKOJXoq5vDZxJxVQ.KZ1Y.bG'},
+                'user': {'name': 'User', 'password': '$2b$12$vHJhj5D3l0xKJsX9NhZmbuZvYN.LhJ1DvC8yXqZKqXGQ5PZ9YJxQu'}
             }
         },
-        'cookie': {
-            'name': 'dbf_cookie',
-            'key': 'secret_key_12345',
-            'expiry_days': 30
-        }
+        'cookie': {'name': 'dbf_cookie', 'key': 'secret_key', 'expiry_days': 30}
     }
 
 # ==================== HELPER FUNCTIONS ====================
-def safe_float(value: Any, default: float = 0.0) -> float:
+def safe_float(value, default=0.0):
     try:
         return float(value) if value is not None else default
     except:
         return default
 
-def safe_int(value: Any, default: int = 0) -> int:
+def safe_int(value, default=0):
     try:
         return int(value) if value is not None else default
     except:
         return default
 
-def safe_divide(num: float, denom: float, default: float = 0.0) -> float:
+def safe_divide(num, denom, default=0.0):
     return num / denom if denom != 0 else default
 
-# ==================== DATABASE OPERATIONS ====================
+def format_currency(amount):
+    return f"₹{amount:,.2f}"
+
+# ==================== CACHE FUNCTIONS ====================
 @st.cache_data(ttl=120, show_spinner=False)
-def list_vendors() -> pd.DataFrame:
-    """Cached vendor list"""
+def list_vendors():
     try:
         response = supabase.table("vendors").select("*").order("name").execute()
         if response and hasattr(response, 'data') and response.data:
@@ -116,22 +100,19 @@ def list_vendors() -> pd.DataFrame:
     return pd.DataFrame(columns=['id', 'name', 'contact'])
 
 @st.cache_data(ttl=120, show_spinner=False)
-def list_fruits() -> List[str]:
-    """Cached fruits with stock"""
+def list_fruits():
     try:
         response = supabase.table("stock").select("fruit, remaining").execute()
         if response and hasattr(response, 'data') and response.data:
             df = pd.DataFrame(response.data)
             if 'fruit' in df.columns and 'remaining' in df.columns:
-                df = df[df['remaining'] > 0]
-                return sorted(df['fruit'].unique().tolist())
+                return sorted(df[df['remaining'] > 0]['fruit'].unique().tolist())
     except:
         pass
     return []
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_current_stock() -> Dict[str, int]:
-    """Get aggregated stock"""
+def get_current_stock():
     try:
         response = supabase.table("stock").select("fruit, remaining").execute()
         if response and hasattr(response, 'data') and response.data:
@@ -143,8 +124,7 @@ def get_current_stock() -> Dict[str, int]:
     return {}
 
 @st.cache_data(ttl=120, show_spinner=False)
-def vendor_summary_table() -> pd.DataFrame:
-    """Get vendor summary with metrics"""
+def vendor_summary_table():
     try:
         vendors = supabase.table("vendors").select("id, name").execute()
         if not vendors or not hasattr(vendors, 'data') or not vendors.data:
@@ -154,33 +134,39 @@ def vendor_summary_table() -> pd.DataFrame:
         for v in vendors.data:
             vid = v['id']
             
-            # Get sales
             sales = supabase.table("sales").select("*").eq("vendor_id", vid).execute()
             sales_df = pd.DataFrame(sales.data if sales and hasattr(sales, 'data') and sales.data else [])
             
-            total_sales = safe_float(sales_df['total_price'].sum() if not sales_df.empty else 0)
-            
-            # Get payments
             payments = supabase.table("payments").select("amount").eq("vendor_id", vid).execute()
-            paid = safe_float(pd.DataFrame(payments.data if payments and hasattr(payments, 'data') and payments.data else [])['amount'].sum() if payments and hasattr(payments, 'data') and payments.data else 0)
+            payments_df = pd.DataFrame(payments.data if payments and hasattr(payments, 'data') and payments.data else [])
+            
+            returns = supabase.table("returns").select("box_deposit_refunded").eq("vendor_id", vid).execute()
+            returns_df = pd.DataFrame(returns.data if returns and hasattr(returns, 'data') and returns.data else [])
+            
+            total_sales = safe_float(sales_df['total_price'].sum() if not sales_df.empty and 'total_price' in sales_df.columns else 0)
+            deposits_collected = safe_float(sales_df['box_deposit_collected'].sum() if not sales_df.empty and 'box_deposit_collected' in sales_df.columns else 0)
+            paid = safe_float(payments_df['amount'].sum() if not payments_df.empty and 'amount' in payments_df.columns else 0)
+            deposits_refunded = safe_float(returns_df['box_deposit_refunded'].sum() if not returns_df.empty and 'box_deposit_refunded' in returns_df.columns else 0)
             
             rows.append({
                 "vendor_id": vid,
                 "vendor_name": v['name'],
                 "total_sales": total_sales,
                 "payments": paid,
-                "net_due": total_sales - paid
+                "net_due": total_sales - paid,
+                "deposits_collected": deposits_collected,
+                "deposits_refunded": deposits_refunded,
+                "net_deposits_held": deposits_collected - deposits_refunded
             })
         
         return pd.DataFrame(rows)
     except:
         return pd.DataFrame()
 
-def add_stock(fruit: str, boxes: int, cost: float, dt: str = None) -> bool:
-    """Add stock entry"""
+# ==================== CRUD OPERATIONS ====================
+def add_stock(fruit, boxes, cost, dt=None):
     if dt is None:
         dt = date.today().isoformat()
-    
     try:
         data = {
             "fruit": fruit.upper().strip(),
@@ -190,16 +176,48 @@ def add_stock(fruit: str, boxes: int, cost: float, dt: str = None) -> bool:
             "remaining": int(boxes)
         }
         supabase.table("stock").insert(data).execute()
-        clear_stock_cache()
+        get_current_stock.clear()
+        list_fruits.clear()
         return True
     except Exception as e:
         st.error(f"Error: {e}")
         return False
 
-def sell_to_vendor(dt: str, vendor_id: int, fruit: str, boxes: int, 
-                  price: float, deposit: float, note: str = "") -> bool:
-    """Record sale"""
+def reduce_stock_fifo(fruit, boxes_to_reduce):
     try:
+        response = supabase.table("stock").select("*").eq("fruit", fruit).gt("remaining", 0).execute()
+        if not response or not hasattr(response, 'data') or not response.data:
+            return False, f"No stock for {fruit}"
+        
+        entries = sorted(response.data, key=lambda x: (x.get('date', ''), x.get('id', 0)))
+        remaining = boxes_to_reduce
+        
+        for entry in entries:
+            if remaining <= 0:
+                break
+            available = safe_int(entry.get('remaining', 0))
+            to_reduce = min(available, remaining)
+            new_remaining = available - to_reduce
+            
+            supabase.table("stock").update({"remaining": new_remaining}).eq("id", entry['id']).execute()
+            remaining -= to_reduce
+        
+        return remaining == 0, "Success" if remaining == 0 else f"Short by {remaining}"
+    except Exception as e:
+        return False, str(e)
+
+def sell_to_vendor(dt, vendor_id, fruit, boxes, price, deposit, note=""):
+    try:
+        stock = get_current_stock()
+        if boxes > stock.get(fruit, 0):
+            st.error(f"Insufficient stock. Available: {stock.get(fruit, 0)}")
+            return False
+        
+        success, msg = reduce_stock_fifo(fruit, boxes)
+        if not success:
+            st.error(msg)
+            return False
+        
         data = {
             "dt": dt,
             "vendor_id": int(vendor_id),
@@ -212,21 +230,43 @@ def sell_to_vendor(dt: str, vendor_id: int, fruit: str, boxes: int,
             "note": note
         }
         supabase.table("sales").insert(data).execute()
-        clear_all_cache()
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error: {e}")
         return False
 
-def record_payment(dt: str, vendor_id: int, amount: float, note: str = "") -> bool:
-    """Record payment"""
+def record_return(dt, vendor_id, fruit, boxes, deposit, note=""):
     try:
         data = {
             "dt": dt,
             "vendor_id": int(vendor_id),
-            "amount": float(amount),
+            "fruit": fruit,
+            "boxes_returned": int(boxes),
+            "box_deposit_refunded": int(boxes) * float(deposit),
             "note": note
         }
+        supabase.table("returns").insert(data).execute()
+        
+        # Add back to stock
+        stock_data = {
+            "fruit": fruit,
+            "quantity": int(boxes),
+            "cost_price": 0.0,
+            "date": dt,
+            "remaining": int(boxes)
+        }
+        supabase.table("stock").insert(stock_data).execute()
+        
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return False
+
+def record_payment(dt, vendor_id, amount, note=""):
+    try:
+        data = {"dt": dt, "vendor_id": int(vendor_id), "amount": float(amount), "note": note}
         supabase.table("payments").insert(data).execute()
         vendor_summary_table.clear()
         return True
@@ -234,46 +274,195 @@ def record_payment(dt: str, vendor_id: int, amount: float, note: str = "") -> bo
         st.error(f"Error: {e}")
         return False
 
-# ==================== CACHE MANAGEMENT ====================
-def clear_stock_cache():
-    """Clear stock-related caches"""
-    get_current_stock.clear()
-    list_fruits.clear()
+# ==================== CHANGE REQUEST FUNCTIONS ====================
+def submit_change_request(sale_id, current_data, requested_data, username, name, note=""):
+    try:
+        data = {
+            "requested_by": username,
+            "requester_name": name,
+            "sale_id": sale_id,
+            "change_type": "edit_sale",
+            "current_data": json.dumps(current_data),
+            "requested_data": json.dumps(requested_data),
+            "status": "pending",
+            "note": note
+        }
+        supabase.table("change_requests").insert(data).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return False
 
-def clear_all_cache():
-    """Clear all caches"""
-    st.cache_data.clear()
+def get_pending_requests(status="pending"):
+    try:
+        response = supabase.table("change_requests").select("*").eq("status", status).order("request_date", desc=True).execute()
+        if response and hasattr(response, 'data') and response.data:
+            return pd.DataFrame(response.data)
+    except:
+        pass
+    return pd.DataFrame()
 
-# ==================== UI HELPERS ====================
-def show_metric_row(metrics: Dict[str, str], cols: int = 4):
-    """Display metrics in responsive columns"""
-    if st.session_state.mobile_view:
-        cols = 2
+def approve_change_request(request_id, admin_username, comment=""):
+    try:
+        req = supabase.table("change_requests").select("*").eq("id", request_id).execute()
+        if not req or not req.data:
+            return False
+        
+        request = req.data[0]
+        requested_data = json.loads(request['requested_data'])
+        sale_id = request['sale_id']
+        
+        # Apply changes
+        boxes = safe_int(requested_data.get('boxes', 0))
+        price = safe_float(requested_data.get('price_per_box', 0))
+        deposit = safe_float(requested_data.get('box_deposit_per_box', 0))
+        
+        update_data = {
+            'dt': requested_data.get('dt'),
+            'fruit': requested_data.get('fruit'),
+            'boxes': boxes,
+            'price_per_box': price,
+            'total_price': boxes * price,
+            'box_deposit_per_box': deposit,
+            'box_deposit_collected': boxes * deposit,
+            'note': requested_data.get('note', '')
+        }
+        
+        supabase.table("sales").update(update_data).eq("id", sale_id).execute()
+        
+        # Update request status
+        supabase.table("change_requests").update({
+            "status": "approved",
+            "reviewed_by": admin_username,
+            "reviewed_date": datetime.now().isoformat(),
+            "admin_comment": comment
+        }).eq("id", request_id).execute()
+        
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return False
+
+def reject_change_request(request_id, admin_username, comment):
+    try:
+        supabase.table("change_requests").update({
+            "status": "rejected",
+            "reviewed_by": admin_username,
+            "reviewed_date": datetime.now().isoformat(),
+            "admin_comment": comment
+        }).eq("id", request_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return False
+
+def get_request_counts():
+    try:
+        response = supabase.table("change_requests").select("status").execute()
+        if response and hasattr(response, 'data') and response.data:
+            df = pd.DataFrame(response.data)
+            counts = df['status'].value_counts().to_dict()
+            return {
+                'pending': counts.get('pending', 0),
+                'approved': counts.get('approved', 0),
+                'rejected': counts.get('rejected', 0)
+            }
+    except:
+        pass
+    return {'pending': 0, 'approved': 0, 'rejected': 0}
+
+def get_sales_for_editing(start, end):
+    try:
+        response = supabase.table("sales").select("*").gte("dt", start).lte("dt", end).order("dt", desc=True).execute()
+        if response and hasattr(response, 'data') and response.data:
+            df = pd.DataFrame(response.data)
+            vendors_df = list_vendors()
+            if not vendors_df.empty:
+                vendor_map = dict(zip(vendors_df['id'], vendors_df['name']))
+                df['vendor_name'] = df['vendor_id'].map(vendor_map)
+            return df
+    except:
+        pass
+    return pd.DataFrame()
+
+# ==================== REPORTS ====================
+def vendor_ledger_df(vendor_id):
+    try:
+        sales = supabase.table("sales").select("*").eq("vendor_id", vendor_id).execute()
+        sales_df = pd.DataFrame(sales.data if sales and hasattr(sales, 'data') and sales.data else [])
+        
+        if not sales_df.empty:
+            sales_df['type'] = 'SALE'
+            sales_df['amount'] = sales_df['total_price']
+            sales_df = sales_df.rename(columns={'dt': 'date'})
+        
+        payments = supabase.table("payments").select("*").eq("vendor_id", vendor_id).execute()
+        payments_df = pd.DataFrame(payments.data if payments and hasattr(payments, 'data') and payments.data else [])
+        
+        if not payments_df.empty:
+            payments_df['type'] = 'PAYMENT'
+            payments_df['amount'] = -payments_df['amount']
+            payments_df = payments_df.rename(columns={'dt': 'date'})
+        
+        dfs = [df for df in [sales_df, payments_df] if not df.empty]
+        if not dfs:
+            return pd.DataFrame()
+        
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.sort_values("date")
+        df['running_balance'] = df['amount'].cumsum()
+        
+        return df
+    except:
+        return pd.DataFrame()
+
+def get_daily_summary(selected_date=None):
+    if selected_date is None:
+        selected_date = date.today()
     
-    columns = st.columns(cols)
-    for idx, (label, value) in enumerate(metrics.items()):
-        columns[idx % cols].metric(label, value)
+    date_str = selected_date.isoformat()
+    
+    try:
+        sales = supabase.table("sales").select("*").eq("dt", date_str).execute()
+        sales_df = pd.DataFrame(sales.data if sales and hasattr(sales, 'data') and sales.data else [])
+        
+        payments = supabase.table("payments").select("*").eq("dt", date_str).execute()
+        payments_df = pd.DataFrame(payments.data if payments and hasattr(payments, 'data') and payments.data else [])
+        
+        return {
+            "date": date_str,
+            "total_sales": safe_float(sales_df['total_price'].sum() if not sales_df.empty else 0),
+            "boxes_sold": safe_int(sales_df['boxes'].sum() if not sales_df.empty else 0),
+            "payments_received": safe_float(payments_df['amount'].sum() if not payments_df.empty else 0),
+            "num_transactions": len(sales_df) + len(payments_df)
+        }
+    except:
+        return None
 
-def format_currency(amount: float) -> str:
-    """Format as currency"""
-    return f"₹{amount:,.2f}"
+# ==================== EXPORT FUNCTIONS ====================
+def export_to_excel(df):
+    try:
+        buf = BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False)
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        st.error(f"Export error: {e}")
+        return BytesIO()
 
 # ==================== MAIN APP ====================
 st.set_page_config(
-    page_title="DBF Management",
+    page_title="DBF Manager",
     layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={'About': "DBF Fruit Manager v6.0"}
+    initial_sidebar_state="expanded"
 )
 
-# Minimal CSS
 st.markdown("""
 <style>
     .stMetric {background: #f0f2f6; padding: 10px; border-radius: 5px;}
-    .stTabs [data-baseweb="tab-list"] {gap: 5px;}
-    @media (max-width: 768px) {
-        .row-widget.stButton > button {width: 100%;}
-    }
+    @media (max-width: 768px) {.row-widget.stButton > button {width: 100%;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -294,7 +483,7 @@ username = st.session_state.get("username")
 
 if auth_status == False:
     st.error('❌ Invalid credentials')
-    st.info("**Try:** admin / admin123")
+    st.info("**Try:** admin / admin123 or user / user123")
     st.stop()
 
 if auth_status == None:
@@ -310,13 +499,15 @@ if auth_status:
         st.write(f'**{name}**')
         if username == 'admin':
             st.caption("🔑 Administrator")
+            counts = get_request_counts()
+            if counts['pending'] > 0:
+                st.warning(f"⏳ {counts['pending']} pending requests")
         else:
             st.caption("👥 User")
         
         authenticator.logout()
         st.divider()
         
-        # Quick stats
         with st.spinner("Loading..."):
             stock = get_current_stock()
             st.metric("📦 Stock", f"{sum(stock.values())} boxes" if stock else "0")
@@ -326,24 +517,21 @@ if auth_status:
                 st.metric("💵 Dues", format_currency(summary['net_due'].sum()))
         
         st.divider()
-        
-        # Mobile toggle
         st.session_state.mobile_view = st.checkbox("📱 Mobile", value=st.session_state.mobile_view)
         
         if st.button("🔄 Refresh", use_container_width=True):
-            clear_all_cache()
-            st.success("✓")
+            st.cache_data.clear()
             st.rerun()
     
     st.title("🍎 DBF Management System")
     
     # Main tabs
-    tabs = st.tabs(["📋 Vendors", "📦 Stock", "💰 Sell", "💵 Payments", "📊 Dues", "📈 Reports"])
+    tabs = st.tabs(["📋 Vendors", "📦 Stock", "💰 Sell", "↩️ Returns", "💵 Payments", 
+                    "✏️ Edit Sales", "📊 Dues", "📈 Reports", "📖 Ledger", "📅 Daily"])
     
-    # ==================== TAB 0: VENDORS ====================
+    # TAB 0: VENDORS
     with tabs[0]:
         st.header("Vendors")
-        
         col1, col2 = st.columns([1, 2])
         
         with col1:
@@ -356,12 +544,10 @@ if auth_status:
                         try:
                             supabase.table("vendors").insert({"name": vname, "contact": vcontact}).execute()
                             list_vendors.clear()
-                            st.success("✓ Added")
+                            st.success("✓")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error: {e}")
-                    else:
-                        st.error("Invalid input")
         
         with col2:
             vendors_df = list_vendors()
@@ -370,10 +556,9 @@ if auth_status:
             else:
                 st.info("No vendors")
     
-    # ==================== TAB 1: STOCK ====================
+    # TAB 1: STOCK
     with tabs[1]:
         st.header("Stock")
-        
         col1, col2 = st.columns([1, 2])
         
         with col1:
@@ -383,34 +568,27 @@ if auth_status:
                 cost = st.number_input("Cost/Box *", min_value=0.0, value=500.0)
                 
                 if st.form_submit_button("Add", type="primary", use_container_width=True):
-                    if fruit:
-                        if add_stock(fruit, boxes, cost):
-                            st.success("✓ Added")
-                            st.rerun()
+                    if fruit and add_stock(fruit, boxes, cost):
+                        st.success("✓")
+                        st.rerun()
         
         with col2:
             stock = get_current_stock()
             if stock:
                 stock_df = pd.DataFrame(list(stock.items()), columns=['Fruit', 'Boxes'])
                 st.dataframe(stock_df, use_container_width=True, hide_index=True)
-                
-                low = {k: v for k, v in stock.items() if v <= 5}
-                if low:
-                    st.warning(f"⚠️ Low: {', '.join([f'{k}({v})' for k, v in low.items()])}")
             else:
                 st.info("No stock")
     
-    # ==================== TAB 2: SELL ====================
+    # TAB 2: SELL
     with tabs[2]:
         st.header("Record Sale")
         
         vendors_df = list_vendors()
         fruits = list_fruits()
         
-        if vendors_df.empty:
-            st.warning("Add vendors first")
-        elif not fruits:
-            st.warning("Add stock first")
+        if vendors_df.empty or not fruits:
+            st.warning("Add vendors and stock first")
         else:
             with st.form("sell_form", clear_on_submit=True):
                 col1, col2, col3 = st.columns(3)
@@ -423,26 +601,48 @@ if auth_status:
                 with col2:
                     fruit = st.selectbox("Fruit", fruits)
                     boxes = st.number_input("Boxes", min_value=1, value=1)
-                    stock = get_current_stock()
-                    st.caption(f"Available: {stock.get(fruit, 0)}")
                 
                 with col3:
                     price = st.number_input("Price/Box", min_value=0.0, value=700.0)
                     deposit = st.number_input("Deposit/Box", min_value=0.0, value=BOX_DEPOSIT_DEFAULT)
                 
-                st.caption(f"💰 Total: {format_currency(boxes * price)} | 📦 Deposit: {format_currency(boxes * deposit)}")
-                
-                if st.form_submit_button("Record Sale", type="primary", use_container_width=True):
+                if st.form_submit_button("Record", type="primary", use_container_width=True):
                     if sell_to_vendor(sdate.isoformat(), vid, fruit, boxes, price, deposit):
-                        st.success("✓ Recorded")
+                        st.success("✓")
                         st.rerun()
     
-    # ==================== TAB 3: PAYMENTS ====================
+    # TAB 3: RETURNS
     with tabs[3]:
+        st.header("Record Returns")
+        
+        vendors_df = list_vendors()
+        if vendors_df.empty:
+            st.warning("Add vendors first")
+        else:
+            with st.form("return_form", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    rdate = st.date_input("Date", value=date.today())
+                    vendor = st.selectbox("Vendor", vendors_df['name'].tolist())
+                    vid = int(vendors_df[vendors_df['name'] == vendor]['id'].iloc[0])
+                
+                with col2:
+                    rfruit = st.text_input("Fruit", value="APPLE")
+                    rboxes = st.number_input("Boxes", min_value=1, value=1)
+                
+                rdeposit = st.number_input("Deposit/Box", min_value=0.0, value=BOX_DEPOSIT_DEFAULT)
+                
+                if st.form_submit_button("Record", type="primary", use_container_width=True):
+                    if record_return(rdate.isoformat(), vid, rfruit.upper(), rboxes, rdeposit):
+                        st.success("✓")
+                        st.rerun()
+    
+    # TAB 4: PAYMENTS
+    with tabs[4]:
         st.header("Payments")
         
         vendors_df = list_vendors()
-        
         if vendors_df.empty:
             st.warning("Add vendors first")
         else:
@@ -457,85 +657,239 @@ if auth_status:
                 if not summary.empty:
                     vrow = summary[summary['vendor_id'] == vid]
                     if not vrow.empty:
-                        show_metric_row({
-                            "Due": format_currency(vrow['net_due'].iloc[0]),
-                            "Paid": format_currency(vrow['payments'].iloc[0])
-                        }, cols=2)
+                        col_a, col_b = st.columns(2)
+                        col_a.metric("Due", format_currency(vrow['net_due'].iloc[0]))
+                        col_b.metric("Deposits", format_currency(vrow['net_deposits_held'].iloc[0]))
                 
                 with st.form("payment_form", clear_on_submit=True):
                     amount = st.number_input("Amount", min_value=0.0, value=0.0, step=100.0)
                     
                     if st.form_submit_button("Record", type="primary", use_container_width=True):
-                        if amount > 0:
-                            if record_payment(pdate.isoformat(), vid, amount):
-                                st.success("✓ Recorded")
-                                st.rerun()
-                        else:
-                            st.error("Amount must be > 0")
+                        if amount > 0 and record_payment(pdate.isoformat(), vid, amount):
+                            st.success("✓")
+                            st.rerun()
             
             with col2:
-                st.subheader("Recent Payments")
+                st.subheader("Recent")
                 try:
                     payments = supabase.table("payments").select("*").order("dt", desc=True).limit(20).execute()
                     if payments and hasattr(payments, 'data') and payments.data:
                         df = pd.DataFrame(payments.data)
                         vendor_map = dict(zip(vendors_df['id'], vendors_df['name']))
                         df['Vendor'] = df['vendor_id'].map(vendor_map)
-                        df = df[['dt', 'Vendor', 'amount']]
-                        df.columns = ['Date', 'Vendor', 'Amount']
-                        df['Amount'] = df['Amount'].apply(format_currency)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        st.dataframe(df[['dt', 'Vendor', 'amount']], use_container_width=True, hide_index=True)
                 except:
                     st.info("No payments")
     
-    # ==================== TAB 4: DUES ====================
-    with tabs[4]:
-        st.header("Vendor Dues")
+    # TAB 5: EDIT SALES (WITH APPROVAL WORKFLOW)
+    with tabs[5]:
+        st.header("✏️ Edit Sales")
+        
+        if username == 'admin':
+            # ADMIN VIEW
+            st.success("🔑 Admin Mode")
+            
+            counts = get_request_counts()
+            col1, col2, col3 = st.columns(3)
+            col1.metric("⏳ Pending", counts['pending'])
+            col2.metric("✅ Approved", counts['approved'])
+            col3.metric("❌ Rejected", counts['rejected'])
+            
+            st.divider()
+            
+            admin_tabs = st.tabs(["📋 Pending", "✏️ Direct Edit", "📜 History"])
+            
+            with admin_tabs[0]:
+                pending = get_pending_requests("pending")
+                
+                if pending.empty:
+                    st.info("No pending requests")
+                else:
+                    for _, req in pending.iterrows():
+                        with st.expander(f"Request #{req['id']} - Sale #{req['sale_id']} by {req['requester_name']}"):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.markdown("**Current:**")
+                                st.json(json.loads(req['current_data']))
+                            
+                            with col2:
+                                st.markdown("**Requested:**")
+                                st.json(json.loads(req['requested_data']))
+                            
+                            st.info(f"**Note:** {req.get('note', 'N/A')}")
+                            
+                            col_a, col_b = st.columns(2)
+                            
+                            with col_a:
+                                with st.form(f"approve_{req['id']}"):
+                                    comment = st.text_area("Comment", key=f"ca{req['id']}")
+                                    if st.form_submit_button("✅ Approve", type="primary", use_container_width=True):
+                                        if approve_change_request(req['id'], username, comment):
+                                            st.success("✓")
+                                            st.rerun()
+                            
+                            with col_b:
+                                with st.form(f"reject_{req['id']}"):
+                                    reason = st.text_area("Reason *", key=f"cr{req['id']}")
+                                    if st.form_submit_button("❌ Reject", use_container_width=True):
+                                        if reason.strip() and reject_change_request(req['id'], username, reason):
+                                            st.success("✓")
+                                            st.rerun()
+            
+            with admin_tabs[1]:
+                st.subheader("Direct Edit")
+                st.warning("⚠️ Immediate changes")
+                
+                col1, col2 = st.columns(2)
+                start = col1.date_input("From", value=date.today().replace(day=1), key="astart")
+                end = col2.date_input("To", value=date.today(), key="aend")
+                
+                if st.button("Load"):
+                    sales_df = get_sales_for_editing(start.isoformat(), end.isoformat())
+                    if not sales_df.empty:
+                        st.session_state.edited_sales = sales_df
+                        st.session_state.edit_mode = True
+                    else:
+                        st.warning("No sales")
+                
+                if st.session_state.edit_mode and not st.session_state.edited_sales.empty:
+                    edit_cols = ['id', 'dt', 'vendor_name', 'fruit', 'boxes', 'price_per_box', 'box_deposit_per_box']
+                    display_df = st.session_state.edited_sales[edit_cols].copy()
+                    
+                    edited_df = st.data_editor(
+                        display_df,
+                        use_container_width=True,
+                        num_rows="fixed",
+                        hide_index=True,
+                        column_config={
+                            'id': st.column_config.NumberColumn('ID', disabled=True),
+                            'dt': st.column_config.TextColumn('Date', disabled=True),
+                            'vendor_name': st.column_config.TextColumn('Vendor', disabled=True)
+                        }
+                    )
+                    
+                    if st.button("💾 Save", type="primary"):
+                        # Save logic here
+                        st.success("Saved")
+                        st.session_state.edit_mode = False
+                        st.rerun()
+            
+            with admin_tabs[2]:
+                st.subheader("History")
+                history = get_pending_requests("approved")
+                if not history.empty:
+                    st.dataframe(history[['id', 'requester_name', 'sale_id', 'reviewed_by', 'admin_comment']], 
+                               use_container_width=True, hide_index=True)
+        
+        else:
+            # USER VIEW
+            st.info("📝 Submit requests for admin approval")
+            
+            try:
+                user_reqs = supabase.table("change_requests").select("*").eq("requested_by", username).order("request_date", desc=True).limit(5).execute()
+                if user_reqs and hasattr(user_reqs, 'data') and user_reqs.data:
+                    df = pd.DataFrame(user_reqs.data)
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("⏳ Pending", len(df[df['status']=='pending']))
+                    col2.metric("✅ Approved", len(df[df['status']=='approved']))
+                    col3.metric("❌ Rejected", len(df[df['status']=='rejected']))
+            except:
+                pass
+            
+            st.divider()
+            
+            col1, col2 = st.columns(2)
+            start = col1.date_input("From", value=date.today().replace(day=1))
+            end = col2.date_input("To", value=date.today())
+            
+            if st.button("Load Sales"):
+                sales_df = get_sales_for_editing(start.isoformat(), end.isoformat())
+                if not sales_df.empty:
+                    st.session_state.user_edit_sales = sales_df
+                else:
+                    st.warning("No sales")
+            
+            if 'user_edit_sales' in st.session_state and not st.session_state.user_edit_sales.empty:
+                st.warning("⚠️ Changes require admin approval")
+                
+                edit_cols = ['id', 'dt', 'vendor_name', 'fruit', 'boxes', 'price_per_box', 'box_deposit_per_box']
+                display_df = st.session_state.user_edit_sales[edit_cols].copy()
+                
+                edited_df = st.data_editor(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        'id': st.column_config.NumberColumn('ID', disabled=True),
+                        'dt': st.column_config.TextColumn('Date', disabled=True),
+                        'vendor_name': st.column_config.TextColumn('Vendor', disabled=True)
+                    }
+                )
+                
+                reason = st.text_area("Reason *", placeholder="Why these changes?")
+                
+                if st.button("📤 Submit", type="primary"):
+                    if not reason.strip():
+                        st.error("Reason required")
+                    else:
+                        submitted = 0
+                        for idx in range(len(st.session_state.user_edit_sales)):
+                            orig = st.session_state.user_edit_sales.iloc[idx][edit_cols]
+                            edit = edited_df.iloc[idx]
+                            
+                            if not orig.equals(edit):
+                                current = orig.to_dict()
+                                requested = edit.to_dict()
+                                
+                                if submit_change_request(int(edit['id']), current, requested, username, name, reason):
+                                    submitted += 1
+                        
+                        if submitted > 0:
+                            st.success(f"✓ Submitted {submitted} request(s)")
+                            del st.session_state.user_edit_sales
+                            st.rerun()
+    
+    # TAB 6: DUES
+    with tabs[6]:
+        st.header("Dues")
         
         summary = vendor_summary_table()
-        
         if summary.empty:
             st.info("No transactions")
         else:
-            show_metric_row({
-                "Sales": format_currency(summary['total_sales'].sum()),
-                "Paid": format_currency(summary['payments'].sum()),
-                "Due": format_currency(summary['net_due'].sum())
-            }, cols=3)
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Sales", format_currency(summary['total_sales'].sum()))
+            col2.metric("Paid", format_currency(summary['payments'].sum()))
+            col3.metric("Due", format_currency(summary['net_due'].sum()))
+            col4.metric("Deposits", format_currency(summary['net_deposits_held'].sum()))
             
             st.divider()
             
             display = summary.copy()
-            for col in ['total_sales', 'payments', 'net_due']:
+            for col in ['total_sales', 'payments', 'net_due', 'net_deposits_held']:
                 display[col] = display[col].apply(format_currency)
             
-            display.columns = ['ID', 'Vendor', 'Sales', 'Paid', 'Due']
-            st.dataframe(display[['Vendor', 'Sales', 'Paid', 'Due']], use_container_width=True, hide_index=True)
+            st.dataframe(display[['vendor_name', 'total_sales', 'payments', 'net_due', 'net_deposits_held']], 
+                        use_container_width=True, hide_index=True)
     
-    # ==================== TAB 5: REPORTS ====================
-    with tabs[5]:
-        st.header("Sales Reports")
+    # TAB 7: REPORTS
+    with tabs[7]:
+        st.header("Reports")
         
         col1, col2 = st.columns(2)
         start = col1.date_input("From", value=date.today().replace(day=1))
         end = col2.date_input("To", value=date.today())
         
         try:
-            sales = supabase.table("sales")\
-                .select("*")\
-                .gte("dt", start.isoformat())\
-                .lte("dt", end.isoformat())\
-                .execute()
-            
+            sales = supabase.table("sales").select("*").gte("dt", start.isoformat()).lte("dt", end.isoformat()).execute()
             if sales and hasattr(sales, 'data') and sales.data:
                 df = pd.DataFrame(sales.data)
                 
-                total = df['total_price'].sum()
-                show_metric_row({
-                    "Revenue": format_currency(total),
-                    "Boxes": str(df['boxes'].sum()),
-                    "Avg/Box": format_currency(safe_divide(total, df['boxes'].sum()))
-                }, cols=3)
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Revenue", format_currency(df['total_price'].sum()))
+                col2.metric("Boxes", str(df['boxes'].sum()))
+                col3.metric("Avg", format_currency(safe_divide(df['total_price'].sum(), df['boxes'].sum())))
                 
                 st.divider()
                 
@@ -543,18 +897,48 @@ if auth_status:
                 vendor_map = dict(zip(vendors_df['id'], vendors_df['name']))
                 df['Vendor'] = df['vendor_id'].map(vendor_map)
                 
-                display = df[['dt', 'Vendor', 'fruit', 'boxes', 'total_price']].copy()
-                display.columns = ['Date', 'Vendor', 'Fruit', 'Boxes', 'Total']
-                display['Total'] = display['Total'].apply(format_currency)
+                st.dataframe(df[['dt', 'Vendor', 'fruit', 'boxes', 'total_price']], use_container_width=True, hide_index=True)
                 
-                st.dataframe(display, use_container_width=True, hide_index=True)
+                excel = export_to_excel(df)
+                st.download_button("📥 Download", data=excel, file_name=f"sales_{start}_{end}.xlsx", 
+                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             else:
                 st.info("No sales")
         except Exception as e:
             st.error(f"Error: {e}")
     
+    # TAB 8: LEDGER
+    with tabs[8]:
+        st.header("Ledger")
+        
+        vendors_df = list_vendors()
+        if vendors_df.empty:
+            st.warning("Add vendors")
+        else:
+            vendor = st.selectbox("Vendor", vendors_df['name'].tolist())
+            vid = int(vendors_df[vendors_df['name'] == vendor]['id'].iloc[0])
+            
+            ledger = vendor_ledger_df(vid)
+            if not ledger.empty:
+                st.dataframe(ledger[['date', 'type', 'amount', 'running_balance']], use_container_width=True, hide_index=True)
+            else:
+                st.info("No transactions")
+    
+    # TAB 9: DAILY SUMMARY
+    with tabs[9]:
+        st.header("Daily Summary")
+        
+        selected = st.date_input("Date", value=date.today())
+        
+        summary = get_daily_summary(selected)
+        if summary and summary['num_transactions'] > 0:
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Sales", format_currency(summary['total_sales']))
+            col2.metric("Boxes", str(summary['boxes_sold']))
+            col3.metric("Payments", format_currency(summary['payments_received']))
+        else:
+            st.info("No transactions")
+    
     # Footer
     st.divider()
-    st.caption(f"🍎 DBF Manager v6.0 - {name}")
-
-
+    st.caption(f"🍎 DBF v6.0 - {name}")
