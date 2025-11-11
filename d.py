@@ -55,11 +55,19 @@ def get_auth_config():
 def init_connection():
     """Initialize Supabase connection"""
     try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
+        # Try nested structure first (your current setup)
+        if "connections" in st.secrets and "supabase" in st.secrets["connections"]:
+            url = st.secrets["connections"]["supabase"]["SUPABASE_URL"]
+            key = st.secrets["connections"]["supabase"]["SUPABASE_KEY"]
+        else:
+            # Fallback to flat structure
+            url = st.secrets["SUPABASE_URL"]
+            key = st.secrets["SUPABASE_KEY"]
+        
         return create_client(url, key)
     except Exception as e:
         st.error(f"Database connection failed: {e}")
+        st.error("Please check your secrets configuration in Streamlit Cloud Settings")
         st.stop()
 
 supabase = init_connection()
